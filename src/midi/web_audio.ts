@@ -15,6 +15,7 @@ import type { Graph } from "../core/types.ts";
 import type { SolveResult } from "../core/solver.ts";
 import { lookup } from "../core/graph.ts";
 import { renderInstrumentVoice } from "./audio_renderer.ts";
+import { midiToHz, renderInstrumentNote } from "./render_instrument.ts";
 
 // Map track names to synth voices. Names match what daft_punk_v2.ts uses.
 type SoundKind =
@@ -56,24 +57,17 @@ function soundForDrumNote(midi: number): SoundKind {
 async function prerenderInstrumentBuffer(
   inst: any, midi: number, durSec: number, sr: number
 ): Promise<any> {
-  const tailSec = 1.5;  // covers ADSR release tail
-  const ctx = new OfflineAudioContext({
-    numberOfChannels: 2,
-    length: Math.ceil(sr * (durSec + tailSec)),
-    sampleRate: sr,
-  });
-  const freqHz = midiToHz(midi);
   try {
-    renderInstrumentVoice(inst, {
-      ctx: ctx as any,
-      startTime: 0,
-      endTime: durSec,
-      freqHz,
-      velocity: 1.0,
-      outputDest: ctx.destination as any,
+    return await renderInstrumentNote(inst, {
+      midi,
+      durationSec: durSec,
+      sampleRate: sr,
+      tailSec: 1.5,
     });
-  } catch (e) { /* swallow; empty buffer returned */ }
-  return await ctx.startRendering();
+  } catch {
+    const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: sr });
+    return await ctx.startRendering();
+  }
 }
 
 /** Bucket a duration into a small set of canonical values to keep cache small. */
@@ -85,10 +79,6 @@ function durBucket(durSec: number): number {
   if (durSec < 2.4)  return 2.4;
   if (durSec < 5.0)  return 5.0;
   return 8.0;
-}
-
-function midiToHz(midi: number): number {
-  return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
 /**

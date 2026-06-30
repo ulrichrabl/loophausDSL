@@ -8,7 +8,8 @@
     "test:unit": "vitest run",
     "test:watch": "vitest",
     "explain:update": "tsx scripts/explain-check.ts",
-    "explain:check": "tsx scripts/explain-check.ts --check"
+    "explain:check": "tsx scripts/explain-check.ts --check",
+    "synth:sweep": "tsx src/demos/synth_sweep.ts"
   },
   "keywords": [],
   "author": "",

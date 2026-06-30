@@ -30,14 +30,17 @@ Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
 
 | Command | What it checks |
 |---------|----------------|
-| `npm test` | Vitest (solver goldens, invariants, graph API, halflight intent) + explain snapshots |
+| `npm test` | Score graph (goldens, invariants, intent) + instrument explain/render + explain snapshots |
 | `npm run test:unit` | Vitest only |
 | `npm run explain:update` | Regenerate `snapshots/explain/*.txt` after intentional changes |
 | `npm run explain:check` | Verify explain output matches committed snapshots |
+| `npm run synth:sweep` | Render isolated instrument notes → `./outputs/synth_*.wav` |
 
-**Human + AI review loop:** edit graph → `npm test` → read `explain()` diff (or `npm run explain:update` if intentional) → listen to WAV if needed.
+**Score loop:** edit graph → `npm test` → read `explain()` → listen if needed.
 
-Intent specs live in `examples/intent/` (see `halflight.intent.json`).
+**Synth loop:** edit instrument in `library.ts` → `npm run synth:sweep wobble_bass --explain` → `npm test`.
+
+See `docs/instrument_graph.md` for the implemented audio node subset.
 
 Each rendered WAV goes to `./outputs/<name>.wav` (or `$OUTPUT_DIR`).
 
