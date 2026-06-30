@@ -4,7 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run && npm run explain:check",
+    "test:unit": "vitest run",
+    "test:watch": "vitest",
+    "explain:update": "tsx scripts/explain-check.ts",
+    "explain:check": "tsx scripts/explain-check.ts --check"
   },
   "keywords": [],
   "author": "",
@@ -12,7 +16,8 @@
   "devDependencies": {
     "@types/node": "^26.0.1",
     "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "midi-writer-js": "^3.2.1",

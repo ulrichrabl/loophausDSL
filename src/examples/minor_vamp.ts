@@ -135,5 +135,5 @@ export function buildMinorVamp() {
     b.registerRange(inst, 55, 79); // G3 to G5
   }
 
-  return b.graph;
+  return { graph: b.graph };
 }

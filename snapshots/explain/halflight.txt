@@ -1,0 +1,93 @@
+# Piece overview
+
+Tempo: 92 BPM
+Meter: 4/4
+Swing: 22%
+Keys (2):
+  - C# natural minor
+  - C# dorian
+Length: 32 bars (128 beats)
+
+# Tracks (5)
+
+- drums (ch 10, percussion)  — 280 events
+- bass (ch 2, program undefined)  — 80 events
+- stab (ch 3, program undefined)  — 48 events
+- pad (ch 4, program undefined)  — 96 events
+- lead (ch 5, program undefined)  — 38 events
+
+# Harmonic progression
+
+  bar 1        : i    → C#  (C#-E-G#)  [tonic]
+  bar 2        : VI   → A   (A-C#-E)  [submediant]
+  bar 3        : VII  → B   (B-D#-F#)  [subtonic]
+  bars 4-5     : i    → C#  (C#-E-G#)  [tonic]
+  bar 6        : VI   → A   (A-C#-E)  [submediant]
+  bar 7        : VII  → B   (B-D#-F#)  [subtonic]
+  bars 8-9     : i    → C#  (C#-E-G#)  [tonic]
+  bar 10       : VI   → A   (A-C#-E)  [submediant]
+  bar 11       : VII  → B   (B-D#-F#)  [subtonic]
+  bars 12-13   : i    → C#  (C#-E-G#)  [tonic]
+  bar 14       : VI   → A   (A-C#-E)  [submediant]
+  bar 15       : VII  → B   (B-D#-F#)  [subtonic]
+  bars 16-17   : i    → C#  (C#-E-G#)  [tonic]
+  bar 18       : IV   → F#  (F#-A#-C#)  [subdominant]
+  bar 19       : VII  → B   (B-D#-F#)  [leading_tone]
+  bars 20-21   : i    → C#  (C#-E-G#)  [tonic]
+  bar 22       : IV   → F#  (F#-A#-C#)  [subdominant]
+  bar 23       : VII  → B   (B-D#-F#)  [leading_tone]
+  bars 24-25   : i    → C#  (C#-E-G#)  [tonic]
+  bar 26       : VII  → B   (B-D#-F#)  [subtonic]
+  bar 27       : VI   → A   (A-C#-E)  [submediant]
+  bar 28       : v    → G#  (G#-B-D#)  [dominant]
+  bar 29       : i    → C#  (C#-E-G#)  [tonic]
+  bar 30       : VII  → B   (B-D#-F#)  [subtonic]
+  bar 31       : VI   → A   (A-C#-E)  [submediant]
+  bar 32       : i    → C#  (C#-E-G#)  [tonic]
+
+# Layers
+
+- pad      [chord-tone 0, chord-tone 1, chord-tone 2]
+           plays at bars 1-32
+- drums    [C, C, C, C]
+           plays at bars 5-24, 29-32
+- drums    [F#, F#, F#, F#, F#, F#, F#, F#]
+           plays at bars 9-11, 13-15, 17-19, 21-23
+- drums    [F#, F#, F#, F#, F#, F#, F#, F#, F#, F#, F#, F#]
+           plays at bars 12, 16, 20, 24
+- drums    [D, D]
+           plays at bars 9-24, 29-32
+- bass     [chord-tone 0, interval +12, chord-tone 0, interval +12]
+           plays at bars 9-24
+- bass     [chord-tone 0, chord-tone 0]
+           plays at bars 25-32
+- stab     [chord-tone 0, chord-tone 1, chord-tone 2, chord-tone 0, chord-tone 1, chord-tone 2]
+           plays at bars 17-24
+- lead     [scale-degree 0, scale-degree 2, scale-degree 4, scale-degree 2]
+           plays at bars 9, 11, 13, 15
+- lead     [scale-degree 0, scale-degree 2, scale-degree 4, scale-degree 5, scale-degree 4]
+           plays at bars 17, 19, 21, 23
+- lead     [scale-degree 0]
+           plays at bars 28
+- lead     [scale-degree 0]
+           plays at bars 32
+
+# Envelopes
+
+- gain: 0.05 → 0.55 (linear) over bars 1-5
+         → modulates pad.gain
+- gain: 0.55 → 0.18 (linear) over bars 25-33
+         → modulates pad.gain
+- filter.cutoff: 320 → 4000 (exp) over bars 1-25
+         → modulates pad.filter.cutoff
+- filter.cutoff: 4000 → 600 (exp) over bars 25-33
+         → modulates pad.filter.cutoff
+- gain: 0.05 → 0.9 (linear) over bars 9-11
+         → modulates bass.gain
+- gain: 0.05 → 0.55 (linear) over bars 17-19
+         → modulates stab.gain
+
+# Diagnostics
+
+- Total events: 542
+- Voice-leading motion: 284 semitones

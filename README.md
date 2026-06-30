@@ -3,6 +3,9 @@
 A parametric music composition kernel. Six primitives, a solver, a synth engine,
 and a library of example pieces.
 
+**Not related to [vcz-Gray/loophaus](https://github.com/vcz-Gray/loophaus)** (AI coding loops).
+This project is a score graph (A) + instrument graph (B) probe for parametric music.
+
 ## Status
 
 This is the probe — a working prototype to test the parametric music thesis
@@ -14,14 +17,29 @@ the kernel from multiple angles.
 
 ```bash
 npm install
+npm test                                 # solver goldens + explain snapshots
 npx tsx src/run.ts                     # list available examples
-npx tsx src/run.ts halflight           # render one example
+npx tsx src/run.ts halflight           # render one example → ./outputs/
 npx tsx src/run.ts halflight --explain # also print structured analysis
-npx tsx src/run.ts all                 # render everything
-npx tsx src/play.ts                    # render the user playground
+npx tsx src/play.ts                    # render the user playground → ./outputs/
 ```
 
-Each rendered WAV goes to `/mnt/user-data/outputs/<name>.wav`.
+Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
+
+## Testing
+
+| Command | What it checks |
+|---------|----------------|
+| `npm test` | Vitest (solver goldens, invariants, graph API, halflight intent) + explain snapshots |
+| `npm run test:unit` | Vitest only |
+| `npm run explain:update` | Regenerate `snapshots/explain/*.txt` after intentional changes |
+| `npm run explain:check` | Verify explain output matches committed snapshots |
+
+**Human + AI review loop:** edit graph → `npm test` → read `explain()` diff (or `npm run explain:update` if intentional) → listen to WAV if needed.
+
+Intent specs live in `examples/intent/` (see `halflight.intent.json`).
+
+Each rendered WAV goes to `./outputs/<name>.wav` (or `$OUTPUT_DIR`).
 
 ## Kernel — six primitives (`src/core/types.ts`)
 

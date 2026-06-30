@@ -265,5 +265,5 @@ export function buildPolymorph() {
     degree: 0,                 // tonic, held
   });
 
-  return b.graph;
+  return { graph: b.graph };
 }

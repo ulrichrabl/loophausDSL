@@ -122,7 +122,7 @@ export interface Instrument {
   id: Id;
   name: string;
   polyphony: number;
-  nodes: Record<string, AudioNode>;
+  audioNodes: Record<string, AudioNode>;
   output: string;            // name of the node producing the final audio output
   /**
    * Per-voice triggers: which gate signal causes voice allocation. Usually

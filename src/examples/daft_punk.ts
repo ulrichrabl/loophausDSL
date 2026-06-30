@@ -235,5 +235,5 @@ export function buildDaftPunk() {
     });
   }
 
-  return b.graph;
+  return { graph: b.graph };
 }

@@ -263,5 +263,5 @@ export function buildFreygishNights() {
   });
   b.placeUnder({ pattern: finalPhrase, underHarmonicSpan: spans[15], track: leadTrack, register: 5, velocity: 95 });
 
-  return b.graph;
+  return { graph: b.graph };
 }

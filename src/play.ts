@@ -5,7 +5,7 @@
  * Edit this file to compose your own piece. Run with:
  *   npx tsx src/play.ts
  *
- * Output goes to /mnt/user-data/outputs/my_piece.mid
+ * Output goes to ./outputs/my_piece.mid (override with OUTPUT_DIR).
  *
  * The full API:
  *
@@ -52,6 +52,7 @@ import { GraphBuilder } from "./core/graph.ts";
 import { solve } from "./core/solver.ts";
 import { renderMidi } from "./midi/render.ts";
 import { midiToName, pcFromName } from "./core/theory.ts";
+import { outputPath } from "./lib/paths.ts";
 
 // ============================================================
 //   YOUR PIECE STARTS HERE
@@ -161,5 +162,6 @@ for (const [instId, midis] of r.instanceVoicings) {
 console.log(`\n  Voice-leading motion: ${r.totalVoiceLeadingMotion} semitones`);
 console.log(`  Events: ${r.events.length}\n`);
 
-renderMidi(g, r, "/mnt/user-data/outputs/my_piece.mid");
-console.log("  MIDI: /mnt/user-data/outputs/my_piece.mid\n");
+const midiOut = outputPath("my_piece.mid");
+renderMidi(g, r, midiOut);
+console.log(`  MIDI: ${midiOut}\n`);

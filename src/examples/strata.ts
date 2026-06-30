@@ -296,5 +296,5 @@ export function buildStrata() {
     releaseMs: 200,
   });
 
-  return b.graph;
+  return { graph: b.graph };
 }

@@ -301,5 +301,5 @@ export function buildDaftPunkV2() {
   b.placeUnder({ pattern: phraseClimax, underHarmonicSpan: spans[14], track: leadTrack, register: 5, velocity: 115 });
   b.placeUnder({ pattern: phraseClimax, underHarmonicSpan: spans[15], track: leadTrack, register: 5, velocity: 115 });
 
-  return b.graph;
+  return { graph: b.graph };
 }

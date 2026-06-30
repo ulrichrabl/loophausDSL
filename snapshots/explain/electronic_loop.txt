@@ -1,0 +1,38 @@
+# Piece overview
+
+Tempo: 120 BPM
+Meter: 4/4
+Key: C major
+Length: 4 bars (16 beats)
+
+# Tracks (3)
+
+- drums (ch 10, percussion)  — 16 events
+- bass (ch 2, program 39)  — 32 events
+- pad (ch 3, program 89)  — 12 events
+
+# Harmonic progression
+
+  bar 1        : vi   → A   (A-C-E)  [submediant]
+  bar 2        : IV   → F   (F-A-C)  [subdominant]
+  bar 3        : I    → C   (C-E-G)  [tonic]
+  bar 4        : V    → G   (G-B-D)  [dominant]
+
+# Layers
+
+- bass     [chord-tone 0, chord-tone 0, chord-tone 2, chord-tone 0]
+           plays at bars 1-4
+- drums    [C, C, C, C]
+           plays at bars 1-4
+- pad      [chord-tone 0, chord-tone 1, chord-tone 2]
+           plays at bars 1-4
+
+# Envelopes
+
+- filter.cutoff: 200 → 8000 (exp) over bars 1-5
+         → modulates pad.filter.cutoff
+
+# Diagnostics
+
+- Total events: 60
+- Voice-leading motion: 37 semitones

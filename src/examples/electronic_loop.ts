@@ -120,5 +120,5 @@ export function buildElectronicLoop() {
   });
   b.bindEnvelope({ envelope: sweep, targetEntity: padTrack, targetParameter: "filter.cutoff" });
 
-  return b.graph;
+  return { graph: b.graph };
 }
