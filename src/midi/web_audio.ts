@@ -1,13 +1,8 @@
 /**
  * Web Audio renderer for Loophaus.
  *
- * Replaces the GM-soundfont MIDI path with actual subtractive synthesis,
- * real filter envelopes, and sidechain compression. The same solved graph
- * goes in; a proper-sounding WAV comes out.
- *
- * Synth design philosophy: each track context maps to a sound type
- * (defined here), and each event triggers a voice — oscillators, filter,
- * envelopes — all wired up natively in Web Audio.
+ * Pitched tracks must declare `instrument:` (audio graph). Drums use procedural
+ * voice synthesis. The same solved graph goes in; a WAV comes out.
  */
 import { OfflineAudioContext } from "node-web-audio-api";
 import * as fs from "fs";
@@ -17,27 +12,15 @@ import { lookup } from "../core/graph.ts";
 import { renderInstrumentVoice } from "./audio_renderer.ts";
 import { midiToHz, renderInstrumentNote } from "./render_instrument.ts";
 
-// Map track names to synth voices. Names match what daft_punk_v2.ts uses.
-type SoundKind =
-  | "kick" | "snare" | "closed_hat" | "open_hat" | "crash" | "clap"
-  | "synth_bass" | "clavinet_stab" | "warm_pad" | "saw_lead";
-
-function soundForTrack(trackName: string): SoundKind {
-  const t = trackName.toLowerCase();
-  if (t.includes("kick") || t === "drums") return "kick"; // 'drums' track contains kick+others
-  if (t.includes("bass")) return "synth_bass";
-  if (t.includes("stab") || t.includes("clavinet")) return "clavinet_stab";
-  if (t.includes("pad")) return "warm_pad";
-  if (t.includes("lead")) return "saw_lead";
-  return "saw_lead";
-}
+type DrumSound =
+  | "kick" | "snare" | "closed_hat" | "open_hat" | "crash" | "clap";
 
 /**
  * The drum track multiplexes — kick, snare, hat all share the track.
  * We disambiguate by MIDI note number:
  *   36 = kick, 38 = snare, 39 = clap, 42 = closed hat, 46 = open hat, 49 = crash
  */
-function soundForDrumNote(midi: number): SoundKind {
+function soundForDrumNote(midi: number): DrumSound {
   if (midi === 36) return "kick";
   if (midi === 38) return "snare";
   if (midi === 39) return "clap";
@@ -86,7 +69,7 @@ function durBucket(durSec: number): number {
  * BufferSourceNode (2 nodes) per hit instead of 4-5 nodes. Big perf win for
  * tracks with many drum events.
  */
-async function prerenderDrum(sound: SoundKind, midi: number, sr: number): Promise<any> {
+async function prerenderDrum(sound: DrumSound, midi: number, sr: number): Promise<any> {
   const dur =
     sound === "crash" ? 2.5 :
     sound === "open_hat" ? 0.6 :
@@ -99,7 +82,7 @@ async function prerenderDrum(sound: SoundKind, midi: number, sr: number): Promis
     length: Math.ceil(sr * dur),
     sampleRate: sr,
   });
-  triggerVoice(ctx as any, sound, midiToHz(midi), 0, dur * 0.8, 1.0, ctx.destination as any);
+  triggerDrumVoice(ctx as any, sound, midiToHz(midi), 0, dur * 0.8, 1.0, ctx.destination as any);
   return await ctx.startRendering();
 }
 
@@ -336,7 +319,7 @@ async function renderOneTrack(
     for (const key of needed) {
       const [sound, midiStr] = key.split("|");
       const midi = parseInt(midiStr, 10);
-      drumBufferCache.set(key, await prerenderDrum(sound as SoundKind, midi, sr));
+      drumBufferCache.set(key, await prerenderDrum(sound as DrumSound, midi, sr));
     }
   }
 
@@ -429,9 +412,11 @@ async function renderOneTrack(
       velGain.connect(volumeBus);
       src.start(tSec);
     } else {
-      // Legacy voice path (tracks without an instrument)
-      const sound = soundForTrack(track.name);
-      triggerVoice(ctx as any, sound, midiToHz(ev.pitch), tSec, durSec, vel, volumeBus);
+      // Pitched track without instrument — skipped (use instrument graphs from library.ts)
+      if (!(track as any)._warnedNoInstrument) {
+        console.warn(`  Track "${track.name}": no instrument — pitched events skipped. Bind an instrument graph.`);
+        (track as any)._warnedNoInstrument = true;
+      }
     }
   }
 
@@ -458,11 +443,11 @@ async function renderOneTrack(
   return { buffer, envelopesApplied, perNoteEnvelopesApplied };
 }
 
-// ===== Voice synthesis ===================================================
+// ===== Drum voice synthesis ==============================================
 
-function triggerVoice(
+function triggerDrumVoice(
   ctx: OfflineAudioContext,
-  sound: SoundKind,
+  sound: DrumSound,
   freq: number,
   t: number,
   dur: number,
@@ -470,16 +455,12 @@ function triggerVoice(
   dest: AudioNode,
 ) {
   switch (sound) {
-    case "kick":           return voiceKick(ctx, t, vel, dest);
-    case "snare":          return voiceSnare(ctx, t, vel, dest);
-    case "closed_hat":     return voiceClosedHat(ctx, t, vel, dest);
-    case "open_hat":       return voiceOpenHat(ctx, t, vel, dest);
-    case "crash":          return voiceCrash(ctx, t, vel, dest);
-    case "clap":           return voiceClap(ctx, t, vel, dest);
-    case "synth_bass":     return voiceSynthBass(ctx, freq, t, dur, vel, dest);
-    case "clavinet_stab":  return voiceClavinet(ctx, freq, t, dur, vel, dest);
-    case "warm_pad":       return voiceWarmPad(ctx, freq, t, dur, vel, dest);
-    case "saw_lead":       return voiceSawLead(ctx, freq, t, dur, vel, dest);
+    case "kick":       return voiceKick(ctx, t, vel, dest);
+    case "snare":      return voiceSnare(ctx, t, vel, dest);
+    case "closed_hat": return voiceClosedHat(ctx, t, vel, dest);
+    case "open_hat":   return voiceOpenHat(ctx, t, vel, dest);
+    case "crash":      return voiceCrash(ctx, t, vel, dest);
+    case "clap":       return voiceClap(ctx, t, vel, dest);
   }
 }
 
@@ -611,150 +592,6 @@ function voiceClap(ctx: OfflineAudioContext, t: number, vel: number, dest: Audio
     noise.start(tt);
     noise.stop(tt + 0.04);
   }
-}
-
-function voiceSynthBass(ctx: OfflineAudioContext, freq: number, t: number, dur: number, vel: number, dest: AudioNode) {
-  // Saw + sub-sine, lowpass with quick envelope. Punchy.
-  const saw = ctx.createOscillator();
-  saw.type = "sawtooth";
-  saw.frequency.value = freq;
-
-  const sub = ctx.createOscillator();
-  sub.type = "sine";
-  sub.frequency.value = freq * 0.5;
-
-  const mix = ctx.createGain();
-  const sawGain = ctx.createGain();
-  sawGain.gain.value = 0.7;
-  const subGain = ctx.createGain();
-  subGain.gain.value = 0.8;
-  saw.connect(sawGain);
-  sub.connect(subGain);
-  sawGain.connect(mix);
-  subGain.connect(mix);
-
-  const filter = ctx.createBiquadFilter();
-  filter.type = "lowpass";
-  filter.Q.value = 6;
-  filter.frequency.setValueAtTime(1800, t);
-  filter.frequency.exponentialRampToValueAtTime(280, t + Math.min(0.18, dur));
-
-  const amp = ctx.createGain();
-  amp.gain.setValueAtTime(0, t);
-  amp.gain.linearRampToValueAtTime(vel * 0.8, t + 0.005);
-  amp.gain.setValueAtTime(vel * 0.7, t + dur * 0.5);
-  amp.gain.exponentialRampToValueAtTime(0.001, t + dur + 0.05);
-
-  mix.connect(filter);
-  filter.connect(amp);
-  amp.connect(dest);
-
-  saw.start(t);
-  sub.start(t);
-  saw.stop(t + dur + 0.1);
-  sub.stop(t + dur + 0.1);
-}
-
-function voiceClavinet(ctx: OfflineAudioContext, freq: number, t: number, dur: number, vel: number, dest: AudioNode) {
-  // Two square waves slightly detuned, fast filter envelope, short percussive amp envelope.
-  const sq1 = ctx.createOscillator();
-  sq1.type = "square";
-  sq1.frequency.value = freq;
-  const sq2 = ctx.createOscillator();
-  sq2.type = "square";
-  sq2.frequency.value = freq * 1.005;
-
-  const mix = ctx.createGain();
-  mix.gain.value = 0.5;
-  sq1.connect(mix);
-  sq2.connect(mix);
-
-  const filter = ctx.createBiquadFilter();
-  filter.type = "bandpass";
-  filter.frequency.setValueAtTime(freq * 6, t);
-  filter.frequency.exponentialRampToValueAtTime(freq * 2.5, t + 0.06);
-  filter.Q.value = 3;
-
-  const amp = ctx.createGain();
-  amp.gain.setValueAtTime(0, t);
-  amp.gain.linearRampToValueAtTime(vel * 0.7, t + 0.003);
-  amp.gain.exponentialRampToValueAtTime(0.001, t + Math.min(dur + 0.1, 0.25));
-
-  mix.connect(filter);
-  filter.connect(amp);
-  amp.connect(dest);
-
-  sq1.start(t);
-  sq2.start(t);
-  sq1.stop(t + 0.3);
-  sq2.stop(t + 0.3);
-}
-
-function voiceWarmPad(ctx: OfflineAudioContext, freq: number, t: number, dur: number, vel: number, dest: AudioNode) {
-  // Stack of detuned sawtooths — supersaw flavor — with slow attack/release.
-  const detunes = [-12, -7, 0, 7, 12]; // cents
-  const mix = ctx.createGain();
-  mix.gain.value = 1 / detunes.length;
-  const oscs: OscillatorNode[] = [];
-  for (const d of detunes) {
-    const o = ctx.createOscillator();
-    o.type = "sawtooth";
-    o.frequency.value = freq;
-    o.detune.value = d;
-    o.connect(mix);
-    oscs.push(o);
-  }
-
-  const amp = ctx.createGain();
-  amp.gain.setValueAtTime(0, t);
-  amp.gain.linearRampToValueAtTime(vel * 0.45, t + 0.25);
-  amp.gain.setValueAtTime(vel * 0.45, t + dur - 0.3);
-  amp.gain.linearRampToValueAtTime(0.001, t + dur + 0.3);
-  mix.connect(amp);
-  amp.connect(dest);
-
-  for (const o of oscs) {
-    o.start(t);
-    o.stop(t + dur + 0.4);
-  }
-}
-
-function voiceSawLead(ctx: OfflineAudioContext, freq: number, t: number, dur: number, vel: number, dest: AudioNode) {
-  // Two detuned sawtooths, lowpass with envelope, slight bite.
-  const s1 = ctx.createOscillator();
-  s1.type = "sawtooth";
-  s1.frequency.value = freq;
-  s1.detune.value = -6;
-  const s2 = ctx.createOscillator();
-  s2.type = "sawtooth";
-  s2.frequency.value = freq;
-  s2.detune.value = 6;
-
-  const mix = ctx.createGain();
-  mix.gain.value = 0.5;
-  s1.connect(mix);
-  s2.connect(mix);
-
-  const filter = ctx.createBiquadFilter();
-  filter.type = "lowpass";
-  filter.Q.value = 5;
-  filter.frequency.setValueAtTime(freq * 8, t);
-  filter.frequency.exponentialRampToValueAtTime(freq * 3, t + Math.min(dur, 0.3));
-
-  const amp = ctx.createGain();
-  amp.gain.setValueAtTime(0, t);
-  amp.gain.linearRampToValueAtTime(vel * 0.55, t + 0.008);
-  amp.gain.setValueAtTime(vel * 0.5, t + dur * 0.6);
-  amp.gain.exponentialRampToValueAtTime(0.001, t + dur + 0.06);
-
-  mix.connect(filter);
-  filter.connect(amp);
-  amp.connect(dest);
-
-  s1.start(t);
-  s2.start(t);
-  s1.stop(t + dur + 0.1);
-  s2.stop(t + dur + 0.1);
 }
 
 // ===== Helpers ==========================================================

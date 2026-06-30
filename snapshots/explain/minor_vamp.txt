@@ -7,9 +7,9 @@ Length: 8 bars (32 beats)
 
 # Tracks (3)
 
-- keys (ch 1, program 5)  — 12 events
-- bass (ch 2, program 33)  — 32 events
-- lead (ch 3, program 81)  — 32 events
+- keys (ch 1, program undefined)  — 12 events
+- bass (ch 2, program undefined)  — 32 events
+- lead (ch 3, program undefined)  — 32 events
 
 # Harmonic progression
 

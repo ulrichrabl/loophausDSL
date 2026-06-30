@@ -19,6 +19,7 @@ the kernel from multiple angles.
 npm install
 npm test                                 # solver goldens + explain snapshots
 npx tsx src/run.ts                     # list available examples
+npx tsx src/run.ts bridge_demo         # 8-bar A+B demo (all pitched = instrument graphs)
 npx tsx src/run.ts halflight           # render one example → ./outputs/
 npx tsx src/run.ts halflight --explain # also print structured analysis
 npx tsx src/play.ts                    # render the user playground → ./outputs/
@@ -39,6 +40,8 @@ Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
 **Score loop:** edit graph → `npm test` → read `explain()` → listen if needed.
 
 **Synth loop:** edit instrument in `library.ts` → `npm run synth:sweep wobble_bass --explain` → `npm test`.
+
+**A+B demo:** `npx tsx src/run.ts bridge_demo` — 8 bars, all pitched tracks use instrument graphs.
 
 See `docs/instrument_graph.md` for the implemented audio node subset.
 

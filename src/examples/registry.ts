@@ -13,6 +13,7 @@ import { buildBlackStone } from "./black_stone.ts";
 import { buildSwellTest } from "./swell_test.ts";
 import { buildThreshold } from "./threshold.ts";
 import { buildHelios } from "./helios.ts";
+import { buildBridgeDemo } from "./bridge_demo.ts";
 
 export type ExampleBuilder = () => Graph;
 
@@ -35,6 +36,7 @@ export const examples: Record<string, ExampleBuilder> = {
   swell_test: graphExample(buildSwellTest),
   threshold: graphExample(buildThreshold),
   helios: graphExample(buildHelios),
+  bridge_demo: graphExample(buildBridgeDemo),
 };
 
 /** Subset used for solver goldens and explain snapshots in CI. */

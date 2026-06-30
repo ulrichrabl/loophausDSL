@@ -14,6 +14,7 @@
  */
 import { GraphBuilder } from "../core/graph.ts";
 import { pcFromName } from "../core/theory.ts";
+import { defineWarmPad, defineWobbleBass, defineSupersawLead } from "../instruments/library.ts";
 
 export function buildMinorVamp() {
   const b = new GraphBuilder();
@@ -27,9 +28,13 @@ export function buildMinorVamp() {
   const key = b.key(pcFromName("C"), "natural_minor");
 
   // Tracks
-  const keysTrack = b.track("keys", 1, { program: 5 });     // electric piano
-  const bassTrack = b.track("bass", 2, { program: 33 });    // finger bass
-  const leadTrack = b.track("lead", 3, { program: 81 });    // square lead
+  const padSynth = defineWarmPad(b);
+  const bassSynth = defineWobbleBass(b);
+  const leadSynth = defineSupersawLead(b);
+
+  const keysTrack = b.track("keys", 1, { instrument: padSynth });
+  const bassTrack = b.track("bass", 2, { instrument: bassSynth });
+  const leadTrack = b.track("lead", 3, { instrument: leadSynth });
 
   // Progression: i (Cm), VI (Ab), III (Eb), VII (Bb) — 2 bars each
   const h1 = b.harmonicSpan({ inKey: key, degree: "i",   startBeats: 0,  endBeats: 8  });

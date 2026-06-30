@@ -60,3 +60,5 @@ const buffer = await renderInstrumentNote(instrument, { midi: 36, durationSec: 0
 - Retiring legacy pitched voices in `web_audio.ts` (Phase 3)
 
 See also: `docs/audio_graph_design.md` (full vision).
+
+**Phase 3 (`bridge_demo`):** 8-bar piece where every pitched track uses `instrument:` — no hardcoded pitched voices in the renderer.

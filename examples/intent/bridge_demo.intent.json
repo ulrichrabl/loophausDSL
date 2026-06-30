@@ -1,0 +1,15 @@
+{
+  "piece": "bridge_demo",
+  "bars": 8,
+  "beats": 32,
+  "sections": ["verse", "bridge"],
+  "bridge": {
+    "startBeats": 16,
+    "endBeats": 32,
+    "mode": "dorian"
+  },
+  "requirements": {
+    "allPitchedTracksUseInstrument": true,
+    "sidechain": true
+  }
+}
