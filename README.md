@@ -31,19 +31,15 @@ Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
 
 | Command | What it checks |
 |---------|----------------|
-| `npm test` | Score graph (goldens, invariants, intent) + instrument explain/render + explain snapshots |
-| `npm run test:unit` | Vitest only |
+| `npm test` | Full suite + explain snapshots (~3s + WAV renders) |
+| `npm run test:unit` | Fast unit tests only (~1s, no WAV renders) |
+| `npm run test:integration` | WAV render smoke tests only |
+| `npm run intent:check` | Intent specs match graph structure |
 | `npm run explain:update` | Regenerate `snapshots/explain/*.txt` after intentional changes |
 | `npm run explain:check` | Verify explain output matches committed snapshots |
 | `npm run synth:sweep` | Render isolated instrument notes → `./outputs/synth_*.wav` |
 
-**Score loop:** edit graph → `npm test` → read `explain()` → listen if needed.
-
-**Synth loop:** edit instrument in `library.ts` → `npm run synth:sweep wobble_bass --explain` → `npm test`.
-
-**A+B demo:** `npx tsx src/run.ts bridge_demo` — 8 bars, all pitched tracks use instrument graphs.
-
-See `docs/instrument_graph.md` for the implemented audio node subset.
+**Collaboration loop:** [docs/collaboration_loop.md](docs/collaboration_loop.md)
 
 Each rendered WAV goes to `./outputs/<name>.wav` (or `$OUTPUT_DIR`).
 

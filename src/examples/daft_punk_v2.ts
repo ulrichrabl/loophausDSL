@@ -7,6 +7,7 @@
  */
 import { GraphBuilder } from "../core/graph.ts";
 import { pcFromName } from "../core/theory.ts";
+import { defineHouseInstruments } from "../instruments/house_stack.ts";
 import type { ScaleDegree } from "../core/types.ts";
 
 export function buildDaftPunkV2() {
@@ -18,12 +19,12 @@ export function buildDaftPunkV2() {
   // A natural minor
   const key = b.key(pcFromName("A"), "natural_minor");
 
-  // Tracks
-  const drumTrack = b.track("drums", 10, { program: 26, isPercussion: true });
-  const bassTrack = b.track("bass",  2,  { program: 38 });
-  const stabTrack = b.track("stab",  3,  { program: 8  });
-  const padTrack  = b.track("pad",   4,  { program: 91 });
-  const leadTrack = b.track("lead",  5,  { program: 82 });
+  const synths = defineHouseInstruments(b);
+  const drumTrack = b.track("drums", 10, { isPercussion: true });
+  const bassTrack = b.track("bass",  2,  { instrument: synths.bass });
+  const stabTrack = b.track("stab",  3,  { instrument: synths.stab });
+  const padTrack  = b.track("pad",   4,  { instrument: synths.pad });
+  const leadTrack = b.track("lead",  5,  { instrument: synths.lead });
 
   // 16 bars Am-F-C-G
   const cycle: ScaleDegree[] = ["i", "VI", "III", "VII"];

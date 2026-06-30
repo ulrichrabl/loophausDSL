@@ -16,6 +16,7 @@
  */
 import { GraphBuilder } from "../core/graph.ts";
 import { pcFromName } from "../core/theory.ts";
+import { defineHouseInstruments } from "../instruments/house_stack.ts";
 
 export function buildStrata() {
   const b = new GraphBuilder();
@@ -27,12 +28,12 @@ export function buildStrata() {
   const keyMinor  = b.key(pcFromName("B"), "natural_minor");
   const keyDorian = b.key(pcFromName("B"), "dorian");
 
-  // Tracks
-  const drumTrack = b.track("drums", 10, { program: 26, isPercussion: true });
-  const bassTrack = b.track("bass",  2,  { program: 38 });
-  const stabTrack = b.track("stab",  3,  { program: 8  });
-  const padTrack  = b.track("pad",   4,  { program: 91 });
-  const leadTrack = b.track("lead",  5,  { program: 82 });
+  const synths = defineHouseInstruments(b);
+  const drumTrack = b.track("drums", 10, { isPercussion: true });
+  const bassTrack = b.track("bass",  2,  { instrument: synths.bass });
+  const stabTrack = b.track("stab",  3,  { instrument: synths.stab });
+  const padTrack  = b.track("pad",   4,  { instrument: synths.pad });
+  const leadTrack = b.track("lead",  5,  { instrument: synths.lead });
 
   // ============= SECTIONS via b.progression() + b.section() =============
   // intro: i held with subtle motion via bVI
