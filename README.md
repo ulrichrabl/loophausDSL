@@ -1,1 +1,135 @@
-# loophausDSL
+# Loophaus — working prototype
+
+A parametric music composition kernel. Six primitives, a solver, a synth engine,
+and a library of example pieces.
+
+## Status
+
+This is the probe — a working prototype to test the parametric music thesis
+through actual composition. Not a product. The code is honest, audio is rendered
+through real subtractive synthesis (node-web-audio-api), and the pieces exercise
+the kernel from multiple angles.
+
+## Running
+
+```bash
+npm install
+npx tsx src/run.ts                     # list available examples
+npx tsx src/run.ts halflight           # render one example
+npx tsx src/run.ts halflight --explain # also print structured analysis
+npx tsx src/run.ts all                 # render everything
+npx tsx src/play.ts                    # render the user playground
+```
+
+Each rendered WAV goes to `/mnt/user-data/outputs/<name>.wav`.
+
+## Kernel — six primitives (`src/core/types.ts`)
+
+- **Event** — discrete temporal happening (position + duration + optional pitch + track)
+- **Envelope** — continuous function over a span (filter sweeps, volume fades)
+- **Relationship** — typed directional binding (HarmonicSpan, RhythmicPattern, MelodicPattern, EnvelopeBinding, Sidechain)
+- **Constraint** — bidirectional restriction (voice-leading, register range)
+- **Context** — interpretive scope (Key, Meter, Tempo, Transport, Track)
+- **Reference** — typed pointer between graph nodes
+
+## Examples
+
+| Name | Bars | Key/Mode | Demonstrates |
+|------|------|----------|--------------|
+| minor_vamp | 8 | C minor | Kernel basics — progression, motif under chords, inversion, voice-leading |
+| electronic_loop | 4 | C major | Drums + bass following roots + filter envelope |
+| daft_punk | 16 | A minor | French house — build-up, drum fills, lead with development |
+| freygish_nights | 16 | D Phrygian Dominant | Modal harmony, sparse arrangement, filter sweep |
+| polymorph | 24 | F# minor → Dorian → minor | Same motif recontextualized across mode shifts |
+| halflight | 32 | C# minor → Dorian → minor | Real dynamics via gain envelopes, section abstraction, hat fills |
+| strata | 32 | B minor (3 sections) | Section-based composition with declared sidechain |
+
+## Framework API surface
+
+```typescript
+const b = new GraphBuilder();
+
+// Transport with optional swing
+b.transport(b.tempo(92), b.meter(4, 4), { swing: 0.22 });
+
+// Contexts
+const key = b.key(pcFromName("C#"), "natural_minor");
+const drumTrack = b.track("drums", 10, { program: 26, isPercussion: true });
+
+// Progression via mini-notation
+const spans = b.progression({
+  inKey: key,
+  pattern: "i VI VII i i VI VII i",   // accepts *N repetition
+  startBeats: 0,
+});
+
+// Sections (named ranges)
+const verse = b.section("verse", spans);
+
+// Rhythm via mini-notation (X = accent, x = normal, . = rest)
+const kick = b.melodicPattern({
+  unitBeats: 4,
+  ownRhythm: b.rhythmMini("X x x x", 4),
+  notes: Array(4).fill({ kind: "fixed_pc" as const, value: 0 }),
+  defaultRegister: 2,
+});
+
+// Place across spans, optionally with variation
+b.placeRange({ pattern: kick, underSpans: verse.spans, track: drumTrack, velocity: 108 });
+b.placeVarying({
+  default: hatNormal, underSpans: verse.spans, track: drumTrack,
+  vary: [
+    { every: 4, use: hatFill, offset: 3 },     // every 4th step
+    { chance: 0.2, use: hatGhost, seed: 7 },   // probabilistic
+    { onSteps: [3, 7], use: accent },          // explicit steps
+  ],
+});
+
+// One-off note inline
+b.placeNote({
+  underHarmonicSpan: spans[7], track: leadTrack, register: 5,
+  degree: 0, durBeats: 3.5, velocity: 95,
+});
+
+// Constraints
+b.smoothVoiceLeading([inst1, inst2, inst3, inst4]);
+b.registerRange(inst, 57, 79);
+
+// Envelopes (target filter.cutoff or gain on track buses)
+const fade = b.envelope({
+  parameter: "gain", startBeats: 0, endBeats: 16,
+  from: 0.05, to: 0.55, curve: "linear",
+});
+b.bindEnvelope({ envelope: fade, targetEntity: padTrack, targetParameter: "gain" });
+
+// Sidechain
+b.sidechain({ trigger: drumTrack, ducks: [bassTrack, padTrack], amount: 0.35, releaseMs: 180 });
+```
+
+## File layout
+
+```
+src/
+  core/
+    types.ts        The six primitives
+    theory.ts       Scales, degrees, chord-tone derivation
+    graph.ts        GraphBuilder API
+    solver.ts       Graph -> concrete events
+    explain.ts      Structured commentary
+  midi/
+    render.ts       MIDI file output (GM soundfont path)
+    web_audio.ts    Real synthesis: subtractive synth + sidechain + reverb
+  examples/        Eight pieces of increasing complexity
+  run.ts           Unified runner
+  play.ts          User playground
+```
+
+## Known gaps (next-round candidates)
+
+1. DSL parser — current GraphBuilder is verbose; textual DSL would compress dramatically
+2. Sub-bar timing addressing — placing events at specific beats without custom patterns
+3. Per-event velocity envelopes within an instance (build across N bars)
+4. Real key modulation (not just mode shifts on same tonic) with pivot chords
+5. More synthesis voices — current set covers French house/atmospheric only
+6. Browser version with live editing — kernel is platform-agnostic
+7. Audio-rate sidechain via AudioWorklet
