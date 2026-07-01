@@ -17,6 +17,7 @@ import type {
   RhythmSpec,
   SectionDecl,
   SidechainDecl,
+  ModulationDecl,
   SpanRef,
   SpanSlice,
   TrackDecl,
@@ -52,7 +53,7 @@ function linesOf(source: string): Line[] {
 }
 
 const TOP_LEVEL =
-  /^(track|pattern|place|place_range|place_varying|place_note|progression|section|key|sidechain|@|voice_leading|register|envelope)\b/;
+  /^(track|pattern|place|place_range|place_varying|place_note|progression|section|key|sidechain|modulate|@|voice_leading|register|envelope)\b/;
 
 export function parseLoop(source: string): LoopFile {
   const file: LoopFile = {
@@ -66,6 +67,7 @@ export function parseLoop(source: string): LoopFile {
     placeVaryings: [],
     placeNotes: [],
     sidechains: [],
+    modulations: [],
     voiceLeading: [],
     registerRanges: [],
     envelopes: [],
@@ -161,6 +163,12 @@ export function parseLoop(source: string): LoopFile {
 
     if (text.startsWith("sidechain ")) {
       file.sidechains.push(parseSidechain(text, num));
+      i++;
+      continue;
+    }
+
+    if (text.startsWith("modulate ")) {
+      file.modulations.push(parseModulation(text, num));
       i++;
       continue;
     }
@@ -501,6 +509,26 @@ function parseSidechain(text: string, line: number): SidechainDecl {
     ducks: m[2].trim().split(/\s+/),
     amount: m[3] !== undefined ? parseFloat(m[3]) : undefined,
     releaseMs: m[4] !== undefined ? parseInt(m[4], 10) : undefined,
+  };
+}
+
+function parseModulation(text: string, line: number): ModulationDecl {
+  const m = text.match(
+    /^modulate\s+from\s+(\w+)\s+to\s+(\w+)\s+at\s+([\d.]+)(?:\s+method\s+(direct|common_tone|dominant))?(?:\s+pivot\s+([ivIVb#]+))?(?:\s+duration\s+([\d.]+))?$/,
+  );
+  if (!m) {
+    throw new ParseError(
+      "expected modulate from KEY to KEY at BEATS [method M] [pivot DEG] [duration N]",
+      line,
+    );
+  }
+  return {
+    fromKey: m[1],
+    toKey: m[2],
+    atBeats: parseFloat(m[3]),
+    method: m[4] as "direct" | "common_tone" | "dominant" | undefined,
+    pivotDegree: m[5],
+    pivotBeats: m[6] !== undefined ? parseFloat(m[6]) : undefined,
   };
 }
 

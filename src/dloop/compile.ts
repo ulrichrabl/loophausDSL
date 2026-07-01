@@ -109,6 +109,32 @@ export function compileLoopFile(file: LoopFile): Graph {
     patternIds.set(p.name, compilePattern(b, p));
   }
 
+  for (const mod of file.modulations) {
+    const fromKey = keyIds.get(mod.fromKey);
+    const toKey = keyIds.get(mod.toKey);
+    if (!fromKey) throw new Error(`Unknown from key: ${mod.fromKey}`);
+    if (!toKey) throw new Error(`Unknown to key: ${mod.toKey}`);
+
+    if (mod.pivotDegree) {
+      const { pivotSpan } = b.modulateWithPivot({
+        fromKey,
+        toKey,
+        atBeats: mod.atBeats,
+        method: mod.method,
+        pivotDegree: mod.pivotDegree as import("../core/types.ts").ScaleDegree,
+        pivotBeats: mod.pivotBeats,
+      });
+      sectionSpans.set("pivot", [pivotSpan]);
+    } else {
+      b.modulate({
+        fromKey,
+        toKey,
+        atBeats: mod.atBeats,
+        method: mod.method,
+      });
+    }
+  }
+
   const instancesByTrackTarget = new Map<string, string[]>();
 
   const recordInstance = (track: string, target: string, inst: string) => {

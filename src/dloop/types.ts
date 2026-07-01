@@ -18,6 +18,7 @@ export interface LoopFile {
   placeVaryings: PlaceVaryingDecl[];
   placeNotes: PlaceNoteDecl[];
   sidechains: SidechainDecl[];
+  modulations: ModulationDecl[];
   voiceLeading: VoiceLeadingDecl[];
   registerRanges: RegisterRangeDecl[];
   envelopes: EnvelopeDecl[];
@@ -135,6 +136,15 @@ export interface SidechainDecl {
   ducks: string[];
   amount?: number;
   releaseMs?: number;
+}
+
+export interface ModulationDecl {
+  fromKey: string;
+  toKey: string;
+  atBeats: number;
+  method?: "direct" | "common_tone" | "dominant";
+  pivotDegree?: string;
+  pivotBeats?: number;
 }
 
 export interface VoiceLeadingDecl {

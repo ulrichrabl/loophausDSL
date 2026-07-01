@@ -115,10 +115,12 @@ place_note degree 0 span outro[7] track lead register 5 dur 3.5 velocity 90
 place_note chord 0 span outro[7] track lead register 5 dur 3.5 velocity 90
 ```
 
-## Sidechain, constraints & envelopes
+## Sidechain, constraints, modulations & envelopes
 
 ```
 sidechain trigger drums ducks bass pad stab lead amount 0.3 release 200
+
+modulate from c_minor to g_minor at 16 method dominant pivot V duration 4
 
 voice_leading pad on *
 voice_leading stab on bridge
@@ -127,6 +129,8 @@ register keys 55 79
 envelope sweep pad filter.cutoff exp 0 16 200 8000
 ```
 
+Modulation methods: `direct` (hard cut), `common_tone` (shared scale tones), `dominant` (V7 of destination). With `pivot DEG`, the compiler creates a pivot harmonic span registered as `pivot` for placement.
+
 ## Examples
 
 | File | TS equivalent | Features |
@@ -134,7 +138,7 @@ envelope sweep pad filter.cutoff exp 0 16 200 8000
 | `examples/loop/minor_vamp.loop` | `minor_vamp.ts` | basics, inversion, register |
 | `examples/loop/electronic_loop.loop` | `electronic_loop.ts` | drums + envelope |
 | `examples/loop/bridge_demo.loop` | `bridge_demo.ts` | multi-key, sections, sidechain |
-| `examples/loop/halflight.loop` | `halflight.ts` | full kernel: placeVarying, placeNote, mode shift |
+| `examples/loop/modulation_demo.loop` | `modulation_demo.ts` | key modulation C→G via dominant pivot |
 
 ## Run
 

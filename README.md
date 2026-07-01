@@ -22,8 +22,8 @@ npx tsx src/run.ts                     # list available examples
 npx tsx src/run.ts bridge_demo         # 8-bar A+B demo (all pitched = instrument graphs)
 npx tsx src/run.ts halflight           # render one example → ./outputs/
 npx tsx src/run.ts halflight --explain # also print structured analysis
-npx tsx src/run_loop.ts examples/loop/halflight.loop  # compile .loop DSL → WAV
-npx tsx src/run_loop.ts examples/loop/bridge_demo.loop --explain
+npx tsx src/run.ts modulation_demo      # C minor → G minor key change
+npx tsx src/run_loop.ts examples/loop/modulation_demo.loop
 ```
 
 Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
@@ -128,6 +128,9 @@ b.bindEnvelope({ envelope: fade, targetEntity: padTrack, targetParameter: "gain"
 
 // Sidechain
 b.sidechain({ trigger: drumTrack, ducks: [bassTrack, padTrack], amount: 0.35, releaseMs: 180 });
+
+// Key modulation (tonic change, not just mode shift)
+b.modulateWithPivot({ fromKey: keyCm, toKey: keyGm, atBeats: 16, method: "dominant", pivotDegree: "V" });
 ```
 
 ## File layout
@@ -152,7 +155,7 @@ src/
 
 1. Sub-bar timing addressing — placing events at specific beats without custom patterns
 2. Per-event velocity envelopes within an instance (build across N bars)
-3. Real key modulation (not just mode shifts on same tonic) with pivot chords
+3. Richer modulation paths (chromatic mediants, enharmonic pivots, automatic pivot inference)
 4. More synthesis voices — current set covers French house/atmospheric only
 5. Browser version with live editing — kernel is platform-agnostic
 6. Audio-rate sidechain via AudioWorklet

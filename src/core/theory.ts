@@ -3,7 +3,7 @@
  * Operates on pitch classes (0..11). 12-TET only for now.
  * Architecture allows extension to cents-based reasoning later.
  */
-import type { PitchClass, ScaleDegree, KeyContext } from "./types.ts";
+import type { PitchClass, ScaleDegree, KeyContext, ModulationMethod } from "./types.ts";
 
 // Scale intervals (semitones from tonic)
 const SCALE_INTERVALS = {
@@ -114,4 +114,95 @@ export function pcFromName(name: string): PitchClass {
   const idx = NOTE_NAMES.findIndex(n => n === name);
   if (idx < 0) throw new Error(`Unknown note name: ${name}`);
   return idx;
+}
+
+/** Pitch classes shared by both keys' parent scales. */
+export function commonTonePcsBetweenKeys(a: KeyContext, b: KeyContext): PitchClass[] {
+  const sa = new Set(scaleTonePcs(a));
+  const sb = scaleTonePcs(b);
+  return sb.filter((pc) => sa.has(pc));
+}
+
+/** Dominant-seventh chord tones (V7) leading into a key — uses raised 7th for minor keys. */
+export function dominantSeventhPcs(key: KeyContext): PitchClass[] {
+  const scale =
+    key.mode === "natural_minor" || key.mode === "harmonic_minor"
+      ? scaleTonePcs({ ...key, mode: "harmonic_minor" })
+      : scaleTonePcs(key);
+  const root = scale[4]; // V degree
+  return [0, 4, 7, 10].map((i) => (root + i) % 12);
+}
+
+/** Relative major of a minor key (up a minor 3rd). */
+export function relativeMajorOf(minor: KeyContext): PitchClass {
+  return (minor.tonic + 3) % 12;
+}
+
+/** Relative minor of a major key (down a minor 3rd). */
+export function relativeMinorOf(major: KeyContext): PitchClass {
+  return (major.tonic + 9) % 12;
+}
+
+export function keyLabel(key: KeyContext): string {
+  return `${NOTE_NAMES[key.tonic]} ${key.mode.replace(/_/g, " ")}`;
+}
+
+export function keysShareTonic(a: KeyContext, b: KeyContext): boolean {
+  return a.tonic === b.tonic;
+}
+
+/**
+ * Pitch classes to emphasize at a modulation boundary.
+ * - common_tone: scale tones shared by both keys
+ * - dominant: V7 of the destination key
+ * - direct: empty (hard cut)
+ */
+export function pivotPcsForModulation(
+  fromKey: KeyContext,
+  toKey: KeyContext,
+  method: ModulationMethod,
+  pivotDegree?: ScaleDegree,
+): PitchClass[] {
+  switch (method) {
+    case "common_tone":
+      if (pivotDegree) {
+        return chordTonePcsForDegree(fromKey, pivotDegree);
+      }
+      return commonTonePcsBetweenKeys(fromKey, toKey);
+    case "dominant":
+      return dominantSeventhPcs(toKey);
+    case "direct":
+      return [];
+  }
+}
+
+/** Suggest a pivot degree in the source key for a modulation to `toKey`. */
+export function suggestPivotDegree(
+  fromKey: KeyContext,
+  toKey: KeyContext,
+  method: ModulationMethod,
+): ScaleDegree | undefined {
+  if (method === "direct") return undefined;
+  if (method === "dominant") {
+    const fromScale = scaleTonePcs(fromKey);
+    const idx = fromScale.indexOf(toKey.tonic);
+    if (idx >= 0) {
+      const lower = ["i", "ii", "iii", "iv", "v", "vi", "vii"][idx];
+      return lower.toUpperCase() as ScaleDegree;
+    }
+    const domRoot = dominantSeventhPcs(toKey)[0];
+    const domIdx = fromScale.indexOf(domRoot);
+    if (domIdx >= 0) {
+      const lower = ["i", "ii", "iii", "iv", "v", "vi", "vii"][domIdx];
+      return lower.toUpperCase() as ScaleDegree;
+    }
+    return "V";
+  }
+  // common_tone: prefer a triad in fromKey that shares tones with toKey tonic triad.
+  const toTriad = [0, 2, 4].map((o) => scaleTonePcs(toKey)[o]);
+  for (const deg of ["I", "IV", "V", "vi", "iii", "ii", "i", "VI", "III"] as ScaleDegree[]) {
+    const triad = chordTonePcsForDegree(fromKey, deg);
+    if (triad.some((pc) => toTriad.includes(pc))) return deg;
+  }
+  return "I";
 }

@@ -8,9 +8,13 @@ import type {
   Graph, Node, Id, Ref, PitchClass, ScaleDegree,
   KeyContext, MeterContext, TempoContext, TransportContext, TrackContext,
   HarmonicSpan, RhythmicPattern, MelodicPattern, MelodicNoteSpec, EnvelopeBinding,
-  Envelope, PatternInstance, SidechainRelationship,
+  Envelope, PatternInstance, SidechainRelationship, Modulation, ModulationMethod,
   SmoothVoiceLeadingConstraint, RegisterRangeConstraint,
 } from "./types.ts";
+import {
+  pivotPcsForModulation,
+  suggestPivotDegree,
+} from "./theory.ts";
 
 let _seq = 0;
 const mkId = (prefix: string): Id => `${prefix}_${++_seq}`;
@@ -457,6 +461,80 @@ export class GraphBuilder {
       amount: opts.amount ?? 0.35,
       releaseMs: opts.releaseMs ?? 180,
     });
+  }
+
+  /**
+   * Declare a modulation from one key to another at a beat boundary.
+   * Pivot pitch classes are derived from `method` unless explicitly given.
+   */
+  modulate(opts: {
+    fromKey: Id;
+    toKey: Id;
+    atBeats: number;
+    method?: ModulationMethod;
+    pivotSpan?: Id;
+    pivotDegree?: ScaleDegree;
+    pivotPcs?: PitchClass[];
+  }): Id {
+    const fromKey = this.graph.nodes.get(opts.fromKey) as KeyContext | undefined;
+    const toKey = this.graph.nodes.get(opts.toKey) as KeyContext | undefined;
+    if (!fromKey || fromKey.type !== "key") throw new Error("modulate: invalid fromKey");
+    if (!toKey || toKey.type !== "key") throw new Error("modulate: invalid toKey");
+
+    const method = opts.method ?? "common_tone";
+    const pivotPcs =
+      opts.pivotPcs ??
+      pivotPcsForModulation(fromKey, toKey, method, opts.pivotDegree);
+
+    return this.add<Modulation>({
+      kind: "relationship",
+      type: "modulation",
+      id: mkId("mod"),
+      fromKey: opts.fromKey,
+      toKey: opts.toKey,
+      atBeats: opts.atBeats,
+      method,
+      pivotSpan: opts.pivotSpan,
+      pivotPcs,
+    });
+  }
+
+  /**
+   * Create a pivot harmonic span and modulation in one step.
+   * Returns both IDs; entry harmony in the new key should start at atBeats + pivotBeats.
+   */
+  modulateWithPivot(opts: {
+    fromKey: Id;
+    toKey: Id;
+    atBeats: number;
+    method?: ModulationMethod;
+    pivotDegree?: ScaleDegree;
+    pivotBeats?: number;
+  }): { modulation: Id; pivotSpan: Id } {
+    const fromKey = this.graph.nodes.get(opts.fromKey) as KeyContext;
+    const toKey = this.graph.nodes.get(opts.toKey) as KeyContext;
+    const method = opts.method ?? "common_tone";
+    const pivotDegree =
+      opts.pivotDegree ?? suggestPivotDegree(fromKey, toKey, method);
+    if (!pivotDegree) {
+      throw new Error("modulateWithPivot: could not infer pivot degree; pass pivotDegree explicitly");
+    }
+    const pivotBeats = opts.pivotBeats ?? 4;
+    const pivotSpan = this.harmonicSpan({
+      inKey: opts.fromKey,
+      degree: pivotDegree,
+      startBeats: opts.atBeats,
+      endBeats: opts.atBeats + pivotBeats,
+    });
+    const modulation = this.modulate({
+      fromKey: opts.fromKey,
+      toKey: opts.toKey,
+      atBeats: opts.atBeats + pivotBeats,
+      method,
+      pivotSpan,
+      pivotDegree,
+    });
+    return { modulation, pivotSpan };
   }
 
   // --- Constraints ------------------------------------------------------

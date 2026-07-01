@@ -16,12 +16,12 @@
 import type {
   Graph, Node, Event, PitchClass, HarmonicSpan, MelodicPattern,
   RhythmicPattern, PatternInstance, MelodicNoteSpec,
-  SmoothVoiceLeadingConstraint, RegisterRangeConstraint,
+  SmoothVoiceLeadingConstraint, RegisterRangeConstraint, Modulation, KeyContext,
 } from "./types.ts";
 import { lookup } from "./graph.ts";
 import {
   scaleTonePcs, chordTonePcsForDegree, extendedChordTonePcsForDegree, rootPcForDegree,
-  functionLabelForDegree, closestMidiOfPc, placePcInRegister,
+  functionLabelForDegree, closestMidiOfPc, placePcInRegister, keyLabel,
 } from "./theory.ts";
 
 interface SolvedEvent extends Event {
@@ -39,17 +39,22 @@ export interface SolveResult {
   harmonicSummary: { spanId: string; degree: string; root: string; tones: string[]; function: string }[];
   /** Total voice-leading motion across constrained sequences (smaller = smoother) */
   totalVoiceLeadingMotion: number;
+  /** Modulations present in the graph (for diagnostics) */
+  modulations: { atBeats: number; from: string; to: string; method: string; pivot: string[] }[];
 }
 
 export function solve(g: Graph): SolveResult {
   const events: SolvedEvent[] = [];
   const instanceVoicings = new Map<string, number[]>();
   const harmonicSummary: SolveResult["harmonicSummary"] = [];
+  const modulations = collectModulations(g);
 
   // ---- Pass 1a: derive properties on harmonic spans ----
-  for (const node of g.nodes.values()) {
-    if (node.kind === "relationship" && node.type === "harmonic_span") {
-      const span = node as HarmonicSpan;
+  const harmonicSpanNodes = [...g.nodes.values()]
+    .filter((n): n is HarmonicSpan => n.kind === "relationship" && n.type === "harmonic_span")
+    .sort((a, b) => a.startBeats - b.startBeats);
+
+  for (const span of harmonicSpanNodes) {
       const key = lookup<any>(g, span.inKey);
       const chordTones = chordTonePcsForDegree(key, span.degree);
       const extendedTones = extendedChordTonePcsForDegree(key, span.degree);
@@ -69,7 +74,6 @@ export function solve(g: Graph): SolveResult {
         tones: chordTones.map(noteName),
         function: span.derived.functionLabel,
       });
-    }
   }
 
   // ---- Pass 1b: expand pattern instances into events ----
@@ -109,12 +113,15 @@ export function solve(g: Graph): SolveResult {
 
   // ---- Pass 2: apply constraints ----
   let totalMotion = 0;
+  const modulationByKeyPair = indexModulations(g, modulations);
   for (const node of g.nodes.values()) {
     if (node.kind !== "constraint") continue;
 
     if (node.type === "smooth_voice_leading") {
       const c = node as SmoothVoiceLeadingConstraint;
-      const motion = applySmoothVoiceLeading(c, instanceVoicings, events, rangeByInstance);
+      const motion = applySmoothVoiceLeading(
+        g, c, instanceVoicings, events, rangeByInstance, modulationByKeyPair,
+      );
       totalMotion += motion;
     }
     // register_range is handled above (as initialization) AND embedded in voice-leading.
@@ -158,7 +165,7 @@ export function solve(g: Graph): SolveResult {
   }
 
   events.sort((a, b) => a.positionBeats - b.positionBeats);
-  return { events, instanceVoicings, harmonicSummary, totalVoiceLeadingMotion: totalMotion };
+  return { events, instanceVoicings, harmonicSummary, totalVoiceLeadingMotion: totalMotion, modulations };
 }
 
 // ---- Expansion ---------------------------------------------------------
@@ -343,11 +350,86 @@ function placeInBand(pc: PitchClass, register: number, _prevMidi: number | null)
  * search is restricted to octaves within that range, so voice-leading
  * can't drift voices off the keyboard.
  */
+function collectModulations(g: Graph): SolveResult["modulations"] {
+  const out: SolveResult["modulations"] = [];
+  for (const node of g.nodes.values()) {
+    if (node.kind !== "relationship" || node.type !== "modulation") continue;
+    const m = node as Modulation;
+    const fromKey = lookup<KeyContext>(g, m.fromKey);
+    const toKey = lookup<KeyContext>(g, m.toKey);
+    out.push({
+      atBeats: m.atBeats,
+      from: keyLabel(fromKey),
+      to: keyLabel(toKey),
+      method: m.method,
+      pivot: (m.pivotPcs ?? []).map(noteName),
+    });
+  }
+  return out.sort((a, b) => a.atBeats - b.atBeats);
+}
+
+function indexModulations(
+  g: Graph,
+  _summary: SolveResult["modulations"],
+): Map<string, Modulation> {
+  const map = new Map<string, Modulation>();
+  for (const node of g.nodes.values()) {
+    if (node.kind !== "relationship" || node.type !== "modulation") continue;
+    const m = node as Modulation;
+    map.set(`${m.fromKey}->${m.toKey}@${m.atBeats}`, m);
+  }
+  return map;
+}
+
+function findModulationForInstances(
+  g: Graph,
+  prevInstId: string,
+  curInstId: string,
+  modIndex: Map<string, Modulation>,
+): Modulation | undefined {
+  const prevInst = g.nodes.get(prevInstId) as PatternInstance | undefined;
+  const curInst = g.nodes.get(curInstId) as PatternInstance | undefined;
+  if (!prevInst?.underHarmonicSpan || !curInst?.underHarmonicSpan) return undefined;
+  const prevSpan = lookup<HarmonicSpan>(g, prevInst.underHarmonicSpan);
+  const curSpan = lookup<HarmonicSpan>(g, curInst.underHarmonicSpan);
+  if (prevSpan.inKey === curSpan.inKey) return undefined;
+
+  for (const m of modIndex.values()) {
+    if (m.fromKey === prevSpan.inKey && m.toKey === curSpan.inKey) return m;
+  }
+  return undefined;
+}
+
+function closestMidiViaPivot(
+  pc: PitchClass,
+  targetMidi: number,
+  pivotPcs: PitchClass[],
+  range?: { min: number; max: number },
+): number {
+  const baseOctave = Math.floor(targetMidi / 12);
+  const candidates: number[] = [];
+  for (let oct = baseOctave - 2; oct <= baseOctave + 2; oct++) {
+    const n = oct * 12 + pc;
+    if (range && (n < range.min || n > range.max)) continue;
+    candidates.push(n);
+  }
+  if (candidates.length === 0) return closestMidiOfPc(pc, targetMidi);
+
+  return candidates.reduce((best, c) => {
+    const dist = Math.abs(c - targetMidi);
+    const pivotBonus = pivotPcs.includes(pc) ? 2 : 0;
+    const bestDist = Math.abs(best - targetMidi) - (pivotPcs.includes(pc) ? 2 : 0);
+    return dist - pivotBonus < bestDist ? c : best;
+  }, candidates[0]);
+}
+
 function applySmoothVoiceLeading(
+  g: Graph,
   c: SmoothVoiceLeadingConstraint,
   voicings: Map<string, number[]>,
   events: SolvedEvent[],
   rangeByInstance: Map<string, { min: number; max: number }>,
+  modIndex: Map<string, Modulation>,
 ): number {
   let totalMotion = 0;
   for (let i = 1; i < c.appliesTo.length; i++) {
@@ -358,10 +440,15 @@ function applySmoothVoiceLeading(
     if (!prev || !cur) continue;
 
     const range = rangeByInstance.get(curId);
+    const modulation = findModulationForInstances(g, prevId, curId, modIndex);
+    const pivotPcs = modulation?.pivotPcs ?? [];
 
     const newCur = cur.map((m, idx) => {
       const target = prev[idx % prev.length];
       const pc = ((m % 12) + 12) % 12;
+      if (modulation && pivotPcs.length > 0) {
+        return closestMidiViaPivot(pc, target, pivotPcs, range);
+      }
       if (range) {
         // Find octaves of pc within [min, max]; among those, closest to target.
         const candidates: number[] = [];

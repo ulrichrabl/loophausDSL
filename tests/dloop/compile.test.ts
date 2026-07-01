@@ -7,6 +7,7 @@ import { buildBridgeDemo } from "../../src/examples/bridge_demo.ts";
 import { buildElectronicLoop } from "../../src/examples/electronic_loop.ts";
 import { buildHalflight } from "../../src/examples/halflight.ts";
 import { buildMinorVamp } from "../../src/examples/minor_vamp.ts";
+import { buildModulationDemo } from "../../src/examples/modulation_demo.ts";
 import { solve } from "../../src/core/solver.ts";
 import { summarizeSolve } from "../helpers/summarize.ts";
 
@@ -59,5 +60,9 @@ describe(".loop DSL", () => {
 
   it("halflight.loop matches TS builder golden", () => {
     goldenMatch("halflight.loop", buildHalflight);
+  });
+
+  it("modulation_demo.loop matches TS builder golden", () => {
+    goldenMatch("modulation_demo.loop", buildModulationDemo);
   });
 });
