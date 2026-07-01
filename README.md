@@ -22,7 +22,7 @@ npx tsx src/run.ts                     # list available examples
 npx tsx src/run.ts bridge_demo         # 8-bar A+B demo (all pitched = instrument graphs)
 npx tsx src/run.ts halflight           # render one example → ./outputs/
 npx tsx src/run.ts halflight --explain # also print structured analysis
-npx tsx src/play.ts                    # render the user playground → ./outputs/
+npx tsx src/run_loop.ts examples/loop/electronic_loop.loop  # compile .loop DSL → WAV
 ```
 
 Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.

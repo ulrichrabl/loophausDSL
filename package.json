@@ -11,7 +11,8 @@
     "explain:update": "tsx scripts/explain-check.ts",
     "explain:check": "tsx scripts/explain-check.ts --check",
     "intent:check": "vitest run tests/intent",
-    "synth:sweep": "tsx src/demos/synth_sweep.ts"
+    "synth:sweep": "tsx src/demos/synth_sweep.ts",
+    "loop:run": "tsx src/run_loop.ts"
   },
   "keywords": [],
   "author": "",

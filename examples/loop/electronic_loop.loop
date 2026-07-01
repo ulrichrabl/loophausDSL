@@ -1,0 +1,31 @@
+# electronic_loop.loop — DSL equivalent of src/examples/electronic_loop.ts
+@tempo 120
+@meter 4/4
+@key C major
+
+track drums percussion channel 10
+track bass instrument wobble_bass channel 2
+track pad instrument warm_pad channel 3
+
+progression main beats 4:
+  vi IV I V
+
+pattern kick unit 4 register 2 velocity 105:
+  rhythm quarters 4
+  notes drum 0 0 0 0
+
+pattern bass_pat unit 2 register 2:
+  rhythm eighths 4
+  notes chord 0 0 2 0
+
+pattern pad_pat unit 4 register 4:
+  rhythm chord
+  notes chord 0 1 2
+
+place kick on main track drums
+place bass_pat on main track bass register 2
+place pad_pat on main track pad velocity 70
+
+voice_leading pad on main
+
+envelope sweep pad filter.cutoff exp 0 16 200 8000
