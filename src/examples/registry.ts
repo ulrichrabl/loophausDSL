@@ -15,6 +15,7 @@ import { buildThreshold } from "./threshold.ts";
 import { buildHelios } from "./helios.ts";
 import { buildBridgeDemo } from "./bridge_demo.ts";
 import { buildModulationDemo } from "./modulation_demo.ts";
+import { buildChromaticModulationDemo } from "./chromatic_modulation_demo.ts";
 
 export type ExampleBuilder = () => Graph;
 
@@ -39,6 +40,7 @@ export const examples: Record<string, ExampleBuilder> = {
   helios: graphExample(buildHelios),
   bridge_demo: graphExample(buildBridgeDemo),
   modulation_demo: graphExample(buildModulationDemo),
+  chromatic_modulation_demo: graphExample(buildChromaticModulationDemo),
 };
 
 /** Subset used for solver goldens and explain snapshots in CI. */

@@ -8,6 +8,8 @@ import { buildElectronicLoop } from "../../src/examples/electronic_loop.ts";
 import { buildHalflight } from "../../src/examples/halflight.ts";
 import { buildMinorVamp } from "../../src/examples/minor_vamp.ts";
 import { buildModulationDemo } from "../../src/examples/modulation_demo.ts";
+import { buildChromaticModulationDemo } from "../../src/examples/chromatic_modulation_demo.ts";
+import { buildPolymorph } from "../../src/examples/polymorph.ts";
 import { solve } from "../../src/core/solver.ts";
 import { summarizeSolve } from "../helpers/summarize.ts";
 
@@ -64,5 +66,20 @@ describe(".loop DSL", () => {
 
   it("modulation_demo.loop matches TS builder golden", () => {
     goldenMatch("modulation_demo.loop", buildModulationDemo);
+  });
+
+  it("chromatic_modulation_demo.loop matches TS builder golden", () => {
+    goldenMatch("chromatic_modulation_demo.loop", buildChromaticModulationDemo);
+  });
+
+  it("polymorph.loop matches core event structure of TS builder", () => {
+    const src = fs.readFileSync(path.join(loopDir, "polymorph.loop"), "utf8");
+    const gLoop = compileLoop(src);
+    const fromLoop = summarizeSolve(gLoop, solve(gLoop));
+    const gTs = buildPolymorph().graph;
+    const expected = summarizeSolve(gTs, solve(gTs));
+    expect(fromLoop.degrees).toEqual(expected.degrees);
+    expect(fromLoop.eventCount).toBeGreaterThan(expected.eventCount * 0.45);
+    expect(fromLoop.eventCount).toBeLessThan(expected.eventCount * 1.1);
   });
 });

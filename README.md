@@ -153,10 +153,8 @@ src/
 
 ## Known gaps (next-round candidates)
 
-1. Sub-bar timing addressing — placing events at specific beats without custom patterns
-2. Per-event velocity envelopes within an instance (build across N bars)
-3. Richer modulation paths (chromatic mediants, enharmonic pivots, automatic pivot inference)
-4. More synthesis voices — current set covers French house/atmospheric only
-5. Browser version with live editing — kernel is platform-agnostic
-6. Audio-rate sidechain via AudioWorklet
-7. Port remaining registry examples (`strata`, `daft_punk`, …) to `.loop`
+1. Per-event velocity envelopes within an instance (build across N bars) — `noteEnvelope` exists in TS API
+2. More synthesis voices — current set covers French house/atmospheric only
+3. Browser version with live editing — kernel is platform-agnostic
+4. Audio-rate sidechain via AudioWorklet
+5. Full `.loop` ports of remaining registry examples (`daft_punk`, `strata`, `helios`, …)

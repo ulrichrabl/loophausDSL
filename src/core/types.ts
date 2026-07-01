@@ -133,8 +133,11 @@ export interface SidechainRelationship {
   id: Id;
   trigger: Ref<TrackContext>;
   ducks: Ref<TrackContext>[];
-  amount: number;             // 0 = no duck, 1 = full duck
-  releaseMs: number;          // time to recover
+  amount: number;
+  releaseMs: number;
+  /** When set, only duck from trigger hits within this beat range. */
+  startBeats?: number;
+  endBeats?: number;
 }
 
 /**
@@ -142,7 +145,12 @@ export interface SidechainRelationship {
  * Optionally references a pivot harmonic span and common-tone pitch classes
  * that bridge the two keys. The solver uses this for cross-key voice-leading.
  */
-export type ModulationMethod = "direct" | "common_tone" | "dominant";
+export type ModulationMethod =
+  | "direct"
+  | "common_tone"
+  | "dominant"
+  | "chromatic_mediant"
+  | "enharmonic";
 
 export interface Modulation {
   kind: "relationship";

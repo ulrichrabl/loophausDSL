@@ -208,14 +208,34 @@ function expandRhythm(inst: PatternInstance, pat: RhythmicPattern, events: Solve
   }
 }
 
+function findHarmonicSpanAtBeat(g: Graph, beat: number): HarmonicSpan | undefined {
+  let found: HarmonicSpan | undefined;
+  for (const node of g.nodes.values()) {
+    if (node.kind !== "relationship" || node.type !== "harmonic_span") continue;
+    const span = node as HarmonicSpan;
+    if (beat >= span.startBeats && beat < span.endBeats - 1e-9) {
+      if (!found || span.startBeats >= found.startBeats) found = span;
+    }
+  }
+  return found;
+}
+
 function expandMelodic(
   g: Graph, inst: PatternInstance, pat: MelodicPattern,
   events: SolvedEvent[], voicings: Map<string, number[]>,
 ) {
-  if (!inst.underHarmonicSpan) {
-    throw new Error(`Melodic pattern instance ${inst.id} needs underHarmonicSpan`);
+  let span: HarmonicSpan;
+  if (inst.underHarmonicSpan) {
+    span = lookup<HarmonicSpan>(g, inst.underHarmonicSpan);
+  } else if (inst.atBeats !== undefined) {
+    const atSpan = findHarmonicSpanAtBeat(g, inst.atBeats);
+    if (!atSpan) {
+      throw new Error(`Melodic pattern instance ${inst.id} at beat ${inst.atBeats} has no harmonic context`);
+    }
+    span = atSpan;
+  } else {
+    throw new Error(`Melodic pattern instance ${inst.id} needs underHarmonicSpan or atBeats`);
   }
-  const span = lookup<HarmonicSpan>(g, inst.underHarmonicSpan);
   if (!span.derived) throw new Error(`Harmonic span ${span.id} not derived`);
 
   // Resolve rhythm
@@ -232,7 +252,7 @@ function expandMelodic(
     throw new Error(`Melodic pattern ${pat.id} has neither ownRhythm nor borrowRhythm`);
   }
 
-  const spanStart = span.startBeats;
+  const spanStart = inst.atBeats ?? span.startBeats;
   const spanLen = span.endBeats - span.startBeats;
 
   // Compute pitch classes from note specs
@@ -272,12 +292,13 @@ function expandMelodic(
   voicings.set(inst.id, midiNotes);
 
   // Emit events tiling rhythm across the span. Velocity gets multiplied by per-onset velMul (accents).
-  let cursor = spanStart;
+  let cursor = inst.atBeats ?? span.startBeats;
+  const spanEnd = inst.atBeats !== undefined ? inst.atBeats + pat.unitBeats : span.endBeats;
   let i = 0;
-  while (cursor < span.endBeats - 1e-9) {
+  while (cursor < spanEnd - 1e-9) {
     for (let k = 0; k < rhythm.length; k++) {
       const onsetAt = cursor + rhythm[k].at * rhythmUnitBeats;
-      if (onsetAt >= span.endBeats - 1e-9) break;
+      if (onsetAt >= spanEnd - 1e-9) break;
       const midi = midiNotes[i % midiNotes.length];
       const baseVel = inst.velocity ?? 90;
       const velMul = rhythm[k].velMul ?? 1.0;
@@ -285,7 +306,7 @@ function expandMelodic(
         kind: "event",
         id: `${inst.id}_${i}`,
         positionBeats: onsetAt,
-        durationBeats: Math.min(rhythm[k].dur * rhythmUnitBeats, span.endBeats - onsetAt),
+        durationBeats: Math.min(rhythm[k].dur * rhythmUnitBeats, spanEnd - onsetAt),
         track: inst.track,
         pitch: midi,
         velocity: Math.min(127, Math.round(baseVel * velMul)),

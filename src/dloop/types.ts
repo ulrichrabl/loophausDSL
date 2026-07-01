@@ -17,6 +17,8 @@ export interface LoopFile {
   placeRanges: PlaceRangeDecl[];
   placeVaryings: PlaceVaryingDecl[];
   placeNotes: PlaceNoteDecl[];
+  placeAts: PlaceAtDecl[];
+  trackGains: TrackGainDecl[];
   sidechains: SidechainDecl[];
   modulations: ModulationDecl[];
   voiceLeading: VoiceLeadingDecl[];
@@ -105,6 +107,23 @@ export interface PlaceRangeDecl {
   track: string;
   register?: number;
   velocity?: number;
+  /** Per-span velocity overrides (must match resolved span count). */
+  velocities?: number[];
+}
+
+export interface PlaceAtDecl {
+  pattern: string;
+  atBeats: number;
+  track: string;
+  register?: number;
+  velocity?: number;
+}
+
+export interface TrackGainDecl {
+  track: string;
+  shape: "swell" | "fade_in" | "fade_out";
+  startBeats: number;
+  endBeats: number;
 }
 
 export type VaryRule =
@@ -136,13 +155,16 @@ export interface SidechainDecl {
   ducks: string[];
   amount?: number;
   releaseMs?: number;
+  startBeats?: number;
+  endBeats?: number;
+  spanRefs?: SpanRef[];
 }
 
 export interface ModulationDecl {
   fromKey: string;
   toKey: string;
   atBeats: number;
-  method?: "direct" | "common_tone" | "dominant";
+  method?: "direct" | "common_tone" | "dominant" | "chromatic_mediant" | "enharmonic";
   pivotDegree?: string;
   pivotBeats?: number;
 }

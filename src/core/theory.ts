@@ -147,8 +147,27 @@ export function keyLabel(key: KeyContext): string {
   return `${NOTE_NAMES[key.tonic]} ${key.mode.replace(/_/g, " ")}`;
 }
 
-export function keysShareTonic(a: KeyContext, b: KeyContext): boolean {
-  return a.tonic === b.tonic;
+export function triadPcs(key: KeyContext): PitchClass[] {
+  return [0, 2, 4].map((o) => scaleTonePcs(key)[o]);
+}
+
+export function triadIntersection(a: KeyContext, b: KeyContext): PitchClass[] {
+  const ta = new Set(triadPcs(a));
+  return triadPcs(b).filter((pc) => ta.has(pc));
+}
+
+/** Semitone interval from `from` tonic to `to` tonic (0..11). */
+export function tonicInterval(from: KeyContext, to: KeyContext): number {
+  return (to.tonic - from.tonic + 12) % 12;
+}
+
+export function isChromaticMediant(from: KeyContext, to: KeyContext): boolean {
+  const d = tonicInterval(from, to);
+  return d === 3 || d === 4 || d === 8 || d === 9;
+}
+
+export function uniquePcs(pcs: PitchClass[]): PitchClass[] {
+  return [...new Set(pcs)];
 }
 
 /**
@@ -171,6 +190,15 @@ export function pivotPcsForModulation(
       return commonTonePcsBetweenKeys(fromKey, toKey);
     case "dominant":
       return dominantSeventhPcs(toKey);
+    case "chromatic_mediant":
+      if (pivotDegree) return chordTonePcsForDegree(fromKey, pivotDegree);
+      {
+        const shared = triadIntersection(fromKey, toKey);
+        return shared.length > 0 ? shared : commonTonePcsBetweenKeys(fromKey, toKey);
+      }
+    case "enharmonic":
+      if (pivotDegree) return chordTonePcsForDegree(fromKey, pivotDegree);
+      return uniquePcs([toKey.tonic, ...commonTonePcsBetweenKeys(fromKey, toKey)]);
     case "direct":
       return [];
   }
@@ -197,6 +225,23 @@ export function suggestPivotDegree(
       return lower.toUpperCase() as ScaleDegree;
     }
     return "V";
+  }
+  if (method === "chromatic_mediant" || method === "enharmonic") {
+    const toTriad = triadPcs(toKey);
+    let best: ScaleDegree = "I";
+    let bestScore = -1;
+    for (const deg of [
+      "I", "ii", "iii", "IV", "V", "vi", "vii",
+      "i", "ii", "iii", "iv", "v", "vi", "vii",
+    ] as ScaleDegree[]) {
+      const triad = chordTonePcsForDegree(fromKey, deg);
+      const score = triad.filter((pc) => toTriad.includes(pc)).length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = deg;
+      }
+    }
+    return best;
   }
   // common_tone: prefer a triad in fromKey that shares tones with toKey tonic triad.
   const toTriad = [0, 2, 4].map((o) => scaleTonePcs(toKey)[o]);

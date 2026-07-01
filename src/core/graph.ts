@@ -191,6 +191,31 @@ export class GraphBuilder {
     }
   }
 
+  /** Track-level gain shaping (fade_in / swell / fade_out over a beat range). */
+  trackGain(opts: {
+    track: Id;
+    shape: "swell" | "fade_in" | "fade_out" | { from: number; to: number; curve?: "linear" | "exp" };
+    startBeats: number;
+    endBeats: number;
+  }): void {
+    const bindOne = (sb: number, eb: number, from: number, to: number, curve: "linear" | "exp" = "linear") => {
+      const env = this.envelope({ parameter: "gain", startBeats: sb, endBeats: eb, from, to, curve });
+      this.bindEnvelope({ envelope: env, targetEntity: opts.track, targetParameter: "gain" });
+    };
+    const { startBeats, endBeats } = opts;
+    if (opts.shape === "swell") {
+      const mid = (startBeats + endBeats) / 2;
+      bindOne(startBeats, mid, 0.05, 1.0, "linear");
+      bindOne(mid, endBeats, 1.0, 0.05, "linear");
+    } else if (opts.shape === "fade_in") {
+      bindOne(startBeats, endBeats, 0.05, 1.0, "linear");
+    } else if (opts.shape === "fade_out") {
+      bindOne(startBeats, endBeats, 1.0, 0.05, "linear");
+    } else {
+      bindOne(startBeats, endBeats, opts.shape.from, opts.shape.to, opts.shape.curve ?? "linear");
+    }
+  }
+
 
   /**
    * A named section: a labeled range of harmonic spans.
@@ -454,12 +479,16 @@ export class GraphBuilder {
     ducks: Id[];
     amount?: number;
     releaseMs?: number;
+    startBeats?: number;
+    endBeats?: number;
   }): Id {
     return this.add<SidechainRelationship>({
       kind: "relationship", type: "sidechain", id: mkId("sc"),
       trigger: opts.trigger, ducks: opts.ducks,
       amount: opts.amount ?? 0.35,
       releaseMs: opts.releaseMs ?? 180,
+      startBeats: opts.startBeats,
+      endBeats: opts.endBeats,
     });
   }
 

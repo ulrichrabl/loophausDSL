@@ -16,6 +16,8 @@ import type {
   RegisterRangeDecl,
   RhythmSpec,
   SectionDecl,
+  PlaceAtDecl,
+  TrackGainDecl,
   SidechainDecl,
   ModulationDecl,
   SpanRef,
@@ -53,7 +55,7 @@ function linesOf(source: string): Line[] {
 }
 
 const TOP_LEVEL =
-  /^(track|pattern|place|place_range|place_varying|place_note|progression|section|key|sidechain|modulate|@|voice_leading|register|envelope)\b/;
+  /^(track|pattern|place|place_at|place_range|place_varying|place_note|progression|section|key|sidechain|modulate|track_gain|@|voice_leading|register|envelope)\b/;
 
 export function parseLoop(source: string): LoopFile {
   const file: LoopFile = {
@@ -66,6 +68,8 @@ export function parseLoop(source: string): LoopFile {
     placeRanges: [],
     placeVaryings: [],
     placeNotes: [],
+    placeAts: [],
+    trackGains: [],
     sidechains: [],
     modulations: [],
     voiceLeading: [],
@@ -149,6 +153,12 @@ export function parseLoop(source: string): LoopFile {
       continue;
     }
 
+    if (text.startsWith("place_at ")) {
+      file.placeAts.push(parsePlaceAt(text, num));
+      i++;
+      continue;
+    }
+
     if (text.startsWith("place_note ")) {
       file.placeNotes.push(parsePlaceNote(text, num));
       i++;
@@ -169,6 +179,12 @@ export function parseLoop(source: string): LoopFile {
 
     if (text.startsWith("modulate ")) {
       file.modulations.push(parseModulation(text, num));
+      i++;
+      continue;
+    }
+
+    if (text.startsWith("track_gain ")) {
+      file.trackGains.push(parseTrackGain(text, num));
       i++;
       continue;
     }
@@ -405,19 +421,49 @@ function parsePlacement(text: string, line: number): PlacementDecl {
 }
 
 function parsePlaceRange(text: string, line: number): PlaceRangeDecl {
-  const m = text.match(
+  const velList = text.match(/\s+velocities\s+((?:\d+\s*)+)$/);
+  const velocities = velList
+    ? velList[1].trim().split(/\s+/).map((n) => parseInt(n, 10))
+    : undefined;
+  const base = velList ? text.slice(0, velList.index) : text;
+  const m = base.match(
     /^place_range\s+(\w+)\s+spans\s+(.+?)\s+track\s+(\w+)(?:\s+register\s+(\d+))?(?:\s+velocity\s+(\d+))?$/,
   );
   if (!m) throw new ParseError("expected place_range PAT spans ... track NAME", line);
-  const spanPart = m[2];
-  const trackIdx = spanPart.lastIndexOf(" track ");
-  // spans are everything between 'spans' and 'track' — already split by regex
   return {
     pattern: m[1],
     spanRefs: m[2].trim().split(/\s+/).map(parseSpanRef),
     track: m[3],
     register: m[4] ? parseInt(m[4], 10) : undefined,
     velocity: m[5] ? parseInt(m[5], 10) : undefined,
+    velocities,
+  };
+}
+
+function parsePlaceAt(text: string, line: number): PlaceAtDecl {
+  const m = text.match(
+    /^place_at\s+(\w+)\s+at\s+([\d.]+)\s+track\s+(\w+)(?:\s+register\s+(\d+))?(?:\s+velocity\s+(\d+))?$/,
+  );
+  if (!m) throw new ParseError("expected place_at PAT at BEATS track NAME", line);
+  return {
+    pattern: m[1],
+    atBeats: parseFloat(m[2]),
+    track: m[3],
+    register: m[4] ? parseInt(m[4], 10) : undefined,
+    velocity: m[5] ? parseInt(m[5], 10) : undefined,
+  };
+}
+
+function parseTrackGain(text: string, line: number): TrackGainDecl {
+  const m = text.match(
+    /^track_gain\s+(\w+)\s+(swell|fade_in|fade_out)\s+([\d.]+)\s+([\d.]+)$/,
+  );
+  if (!m) throw new ParseError("expected track_gain TRACK swell|fade_in|fade_out START END", line);
+  return {
+    track: m[1],
+    shape: m[2] as TrackGainDecl["shape"],
+    startBeats: parseFloat(m[3]),
+    endBeats: parseFloat(m[4]),
   };
 }
 
@@ -501,20 +547,28 @@ function parsePlaceNote(text: string, line: number): PlaceNoteDecl {
 
 function parseSidechain(text: string, line: number): SidechainDecl {
   const m = text.match(
-    /^sidechain\s+trigger\s+(\w+)\s+ducks\s+([\w\s]+?)(?:\s+amount\s+([\d.]+))?(?:\s+release\s+(\d+))?$/,
+    /^sidechain\s+trigger\s+(\w+)\s+ducks\s+([\w\s]+?)(?:\s+spans\s+(.+?))?(?:\s+from\s+([\d.]+)\s+to\s+([\d.]+))?(?:\s+amount\s+([\d.]+))?(?:\s+release\s+(\d+))?$/,
   );
-  if (!m) throw new ParseError("expected sidechain trigger T ducks A B [amount N] [release MS]", line);
+  if (!m) {
+    throw new ParseError(
+      "expected sidechain trigger T ducks A B [spans ...] [from X to Y] [amount N] [release MS]",
+      line,
+    );
+  }
   return {
     trigger: m[1],
     ducks: m[2].trim().split(/\s+/),
-    amount: m[3] !== undefined ? parseFloat(m[3]) : undefined,
-    releaseMs: m[4] !== undefined ? parseInt(m[4], 10) : undefined,
+    spanRefs: m[3] ? m[3].trim().split(/\s+/).map(parseSpanRef) : undefined,
+    startBeats: m[4] !== undefined ? parseFloat(m[4]) : undefined,
+    endBeats: m[5] !== undefined ? parseFloat(m[5]) : undefined,
+    amount: m[6] !== undefined ? parseFloat(m[6]) : undefined,
+    releaseMs: m[7] !== undefined ? parseInt(m[7], 10) : undefined,
   };
 }
 
 function parseModulation(text: string, line: number): ModulationDecl {
   const m = text.match(
-    /^modulate\s+from\s+(\w+)\s+to\s+(\w+)\s+at\s+([\d.]+)(?:\s+method\s+(direct|common_tone|dominant))?(?:\s+pivot\s+([ivIVb#]+))?(?:\s+duration\s+([\d.]+))?$/,
+    /^modulate\s+from\s+(\w+)\s+to\s+(\w+)\s+at\s+([\d.]+)(?:\s+method\s+(direct|common_tone|dominant|chromatic_mediant|enharmonic))?(?:\s+pivot\s+([ivIVb#]+))?(?:\s+duration\s+([\d.]+))?$/,
   );
   if (!m) {
     throw new ParseError(

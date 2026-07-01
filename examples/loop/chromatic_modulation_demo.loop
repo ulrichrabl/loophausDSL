@@ -1,0 +1,31 @@
+# chromatic_modulation_demo.loop — C major → E major (chromatic mediant)
+@tempo 88
+@meter 4/4
+
+key c_major C major
+key e_major E major
+
+track pad instrument warm_pad channel 4
+track bass instrument wobble_bass channel 2
+
+progression section_a key c_major beats 4 start 0:
+  I vi IV V
+
+modulate from c_major to e_major at 16 method chromatic_mediant duration 4
+
+progression section_b key e_major beats 4 start 20:
+  I vi IV V
+
+pattern pad_pat unit 4 register 4:
+  rhythm chord
+  notes chord 0 1 2
+
+pattern bass_pat unit 4 register 2:
+  rhythm sustain
+  notes chord 0
+
+place_range pad_pat spans section_a pivot section_b track pad velocity 55
+voice_leading pad on *
+track_gain pad fade_in 0 8
+
+place_range bass_pat spans section_a pivot section_b track bass register 2 velocity 90

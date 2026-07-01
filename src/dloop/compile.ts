@@ -115,23 +115,23 @@ export function compileLoopFile(file: LoopFile): Graph {
     if (!fromKey) throw new Error(`Unknown from key: ${mod.fromKey}`);
     if (!toKey) throw new Error(`Unknown to key: ${mod.toKey}`);
 
-    if (mod.pivotDegree) {
-      const { pivotSpan } = b.modulateWithPivot({
-        fromKey,
-        toKey,
-        atBeats: mod.atBeats,
-        method: mod.method,
-        pivotDegree: mod.pivotDegree as import("../core/types.ts").ScaleDegree,
-        pivotBeats: mod.pivotBeats,
-      });
-      sectionSpans.set("pivot", [pivotSpan]);
-    } else {
+    if (mod.method === "direct" && !mod.pivotDegree && !mod.pivotBeats) {
       b.modulate({
         fromKey,
         toKey,
         atBeats: mod.atBeats,
         method: mod.method,
       });
+    } else {
+      const { pivotSpan } = b.modulateWithPivot({
+        fromKey,
+        toKey,
+        atBeats: mod.atBeats,
+        method: mod.method,
+        pivotDegree: mod.pivotDegree as import("../core/types.ts").ScaleDegree | undefined,
+        pivotBeats: mod.pivotBeats,
+      });
+      sectionSpans.set("pivot", [pivotSpan]);
     }
   }
 
@@ -153,19 +153,25 @@ export function compileLoopFile(file: LoopFile): Graph {
     spans: string[],
     track: string,
     targetLabel: string,
-    opts: { register?: number; velocity?: number },
+    opts: { register?: number; velocity?: number; velocities?: number[] },
   ) => {
     const patId = patternIds.get(pattern);
     const trackId = trackIds.get(track);
     if (!patId) throw new Error(`Unknown pattern: ${pattern}`);
     if (!trackId) throw new Error(`Unknown track: ${track}`);
-    for (const span of spans) {
+    if (opts.velocities && opts.velocities.length !== spans.length) {
+      throw new Error(
+        `place_range ${pattern}: ${opts.velocities.length} velocities for ${spans.length} spans`,
+      );
+    }
+    for (let i = 0; i < spans.length; i++) {
+      const span = spans[i];
       const inst = b.placeUnder({
         pattern: patId,
         underHarmonicSpan: span,
         track: trackId,
         register: opts.register,
-        velocity: opts.velocity,
+        velocity: opts.velocities?.[i] ?? opts.velocity,
       });
       recordInstance(track, targetLabel, inst);
     }
@@ -190,6 +196,20 @@ export function compileLoopFile(file: LoopFile): Graph {
     compilePlaceNote(b, pn, trackIds, progressionSpans, sectionSpans, recordInstance);
   }
 
+  for (const pa of file.placeAts) {
+    const patId = patternIds.get(pa.pattern);
+    const trackId = trackIds.get(pa.track);
+    if (!patId) throw new Error(`Unknown pattern: ${pa.pattern}`);
+    if (!trackId) throw new Error(`Unknown track: ${pa.track}`);
+    const inst = b.placeAt({
+      pattern: patId,
+      atBeats: pa.atBeats,
+      track: trackId,
+      velocity: pa.velocity,
+    });
+    recordInstance(pa.track, `at_${pa.atBeats}`, inst);
+  }
+
   for (const sc of file.sidechains) {
     const trigger = trackIds.get(sc.trigger);
     if (!trigger) throw new Error(`Unknown sidechain trigger: ${sc.trigger}`);
@@ -198,11 +218,32 @@ export function compileLoopFile(file: LoopFile): Graph {
       if (!id) throw new Error(`Unknown sidechain duck track: ${d}`);
       return id;
     });
+    let startBeats = sc.startBeats;
+    let endBeats = sc.endBeats;
+    if (sc.spanRefs && sc.spanRefs.length > 0) {
+      const spanIds = resolveSpanRefs(sc.spanRefs, progressionSpans, sectionSpans);
+      const range = beatRangeForSpans(b.graph, spanIds);
+      startBeats = range.startBeats;
+      endBeats = range.endBeats;
+    }
     b.sidechain({
       trigger,
       ducks,
       amount: sc.amount,
       releaseMs: sc.releaseMs,
+      startBeats,
+      endBeats,
+    });
+  }
+
+  for (const tg of file.trackGains) {
+    const trackId = trackIds.get(tg.track);
+    if (!trackId) throw new Error(`Unknown track: ${tg.track}`);
+    b.trackGain({
+      track: trackId,
+      shape: tg.shape,
+      startBeats: tg.startBeats,
+      endBeats: tg.endBeats,
     });
   }
 
@@ -374,3 +415,15 @@ function compilePattern(b: GraphBuilder, p: PatternDecl): string {
 }
 
 export { resolveSpanRef, resolveSpanRefs };
+
+function beatRangeForSpans(g: Graph, spanIds: string[]): { startBeats: number; endBeats: number } {
+  if (spanIds.length === 0) throw new Error("beatRangeForSpans: no spans");
+  let start = Infinity;
+  let end = 0;
+  for (const id of spanIds) {
+    const span = lookup<HarmonicSpan>(g, id);
+    start = Math.min(start, span.startBeats);
+    end = Math.max(end, span.endBeats);
+  }
+  return { startBeats: start, endBeats: end };
+}

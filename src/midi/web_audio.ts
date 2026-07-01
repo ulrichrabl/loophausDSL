@@ -129,6 +129,8 @@ export async function renderWebAudio(g: Graph, result: SolveResult, outputPath: 
       for (const ev of result.events) {
         if (ev.pitch === undefined) continue;
         if (ev.track !== sc.trigger) continue;
+        if (sc.startBeats !== undefined && ev.positionBeats < sc.startBeats) continue;
+        if (sc.endBeats !== undefined && ev.positionBeats >= sc.endBeats) continue;
         const trk = lookup<any>(g, ev.track);
         if (trk.isPercussion && ev.pitch !== 36) continue;
         triggerTimes.push(beatsToSec(ev.positionBeats));

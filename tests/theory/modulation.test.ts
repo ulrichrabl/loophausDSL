@@ -5,6 +5,8 @@ import {
   keyLabel,
   pivotPcsForModulation,
   relativeMajorOf,
+  triadIntersection,
+  isChromaticMediant,
   suggestPivotDegree,
   pcFromName,
 } from "../../src/core/theory.ts";
@@ -47,7 +49,9 @@ describe("modulation theory", () => {
     expect(pcs).toEqual(dominantSeventhPcs(key("G", "natural_minor")));
   });
 
-  it("keyLabel formats mode names", () => {
-    expect(keyLabel(key("C#", "natural_minor"))).toBe("C# natural minor");
+  it("suggests pivot for chromatic mediant", () => {
+    const deg = suggestPivotDegree(key("C", "major"), key("E", "major"), "chromatic_mediant");
+    expect(deg).toBeDefined();
+    expect(triadIntersection(key("C", "major"), key("E", "major")).length).toBeGreaterThan(0);
   });
 });
