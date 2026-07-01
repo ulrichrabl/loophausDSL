@@ -6,12 +6,21 @@ import type {
   EnvelopeDecl,
   LoopFile,
   NoteSpec,
+  NoteToken,
   PatternDecl,
+  PlaceNoteDecl,
+  PlaceRangeDecl,
+  PlaceVaryingDecl,
   PlacementDecl,
   ProgressionDecl,
   RegisterRangeDecl,
   RhythmSpec,
+  SectionDecl,
+  SidechainDecl,
+  SpanRef,
+  SpanSlice,
   TrackDecl,
+  VaryRule,
   VoiceLeadingDecl,
 } from "./types.ts";
 
@@ -27,10 +36,11 @@ interface Line {
 }
 
 function stripComment(raw: string): string {
-  const hash = raw.indexOf("#");
-  let s = hash >= 0 ? raw.slice(0, hash) : raw;
-  const slash = s.indexOf("//");
-  if (slash >= 0) s = s.slice(0, slash);
+  const slash = raw.indexOf("//");
+  let s = slash >= 0 ? raw.slice(0, slash) : raw;
+  s = s.trim();
+  if (s.startsWith("#")) return "";
+  s = s.replace(/\s+#.*$/, "");
   return s.trim();
 }
 
@@ -41,12 +51,21 @@ function linesOf(source: string): Line[] {
     .filter((l) => l.text.length > 0);
 }
 
+const TOP_LEVEL =
+  /^(track|pattern|place|place_range|place_varying|place_note|progression|section|key|sidechain|@|voice_leading|register|envelope)\b/;
+
 export function parseLoop(source: string): LoopFile {
   const file: LoopFile = {
+    keys: [],
     tracks: [],
     progressions: [],
+    sections: [],
     patterns: [],
     placements: [],
+    placeRanges: [],
+    placeVaryings: [],
+    placeNotes: [],
+    sidechains: [],
     voiceLeading: [],
     registerRanges: [],
     envelopes: [],
@@ -83,6 +102,12 @@ export function parseLoop(source: string): LoopFile {
       continue;
     }
 
+    if (text.startsWith("key ")) {
+      file.keys.push(parseKeyDecl(text, num));
+      i++;
+      continue;
+    }
+
     if (text.startsWith("track ")) {
       file.tracks.push(parseTrack(text, num));
       i++;
@@ -96,6 +121,12 @@ export function parseLoop(source: string): LoopFile {
       continue;
     }
 
+    if (text.startsWith("section ")) {
+      file.sections.push(parseSection(text, num));
+      i++;
+      continue;
+    }
+
     if (text.startsWith("pattern ")) {
       const { decl, next } = parsePatternBlock(ls, i);
       file.patterns.push(decl);
@@ -103,8 +134,33 @@ export function parseLoop(source: string): LoopFile {
       continue;
     }
 
+    if (text.startsWith("place_range ")) {
+      file.placeRanges.push(parsePlaceRange(text, num));
+      i++;
+      continue;
+    }
+
+    if (text.startsWith("place_varying ")) {
+      const { decl, next } = parsePlaceVaryingBlock(ls, i);
+      file.placeVaryings.push(decl);
+      i = next;
+      continue;
+    }
+
+    if (text.startsWith("place_note ")) {
+      file.placeNotes.push(parsePlaceNote(text, num));
+      i++;
+      continue;
+    }
+
     if (text.startsWith("place ")) {
       file.placements.push(parsePlacement(text, num));
+      i++;
+      continue;
+    }
+
+    if (text.startsWith("sidechain ")) {
+      file.sidechains.push(parseSidechain(text, num));
       i++;
       continue;
     }
@@ -133,7 +189,12 @@ export function parseLoop(source: string): LoopFile {
   return file;
 }
 
-const TOP_LEVEL = /^(track|pattern|place|progression|@|voice_leading|register|envelope)\b/;
+function parseKeyDecl(text: string, line: number) {
+  const rest = text.slice(4).trim().split(/\s+/);
+  if (rest.length < 3) throw new ParseError("expected key NAME TONIC MODE", line);
+  const [name, tonic, ...modeParts] = rest;
+  return { name, tonic, mode: modeParts.join("_") };
+}
 
 function parseTrack(text: string, line: number): TrackDecl {
   let m = text.match(/^track\s+(\w+)\s+instrument\s+(\w+)\s+channel\s+(\d+)$/);
@@ -147,10 +208,23 @@ function parseTrack(text: string, line: number): TrackDecl {
   throw new ParseError("expected track NAME instrument X channel N", line);
 }
 
+function parseSection(text: string, line: number): SectionDecl {
+  const m = text.match(/^section\s+(\w+)\s+progression\s+(\w+)$/);
+  if (!m) throw new ParseError("expected section NAME progression PROG", line);
+  return { name: m[1], progression: m[2] };
+}
+
 function parseProgressionBlock(ls: Line[], start: number): { decl: ProgressionDecl; next: number } {
   const head = ls[start].text;
-  const hm = head.match(/^progression\s+(\w+)\s+beats\s+([\d.]+):$/);
-  if (!hm) throw new ParseError("expected progression NAME beats N:", ls[start].num);
+  const hm = head.match(
+    /^progression\s+(\w+)(?:\s+key\s+(\w+))?\s+beats\s+([\d.]+)(?:\s+start\s+([\d.]+))?:$/,
+  );
+  if (!hm) {
+    throw new ParseError(
+      "expected progression NAME [key KEY] beats N [start BEATS]:",
+      ls[start].num,
+    );
+  }
   const degrees: string[] = [];
   let i = start + 1;
   while (i < ls.length && !TOP_LEVEL.test(ls[i].text)) {
@@ -159,7 +233,13 @@ function parseProgressionBlock(ls: Line[], start: number): { decl: ProgressionDe
   }
   if (degrees.length === 0) throw new ParseError("progression needs degree tokens", ls[start].num);
   return {
-    decl: { name: hm[1], beatsPerStep: parseFloat(hm[2]), degrees: expandDegrees(degrees) },
+    decl: {
+      name: hm[1],
+      keyName: hm[2] ?? "default",
+      beatsPerStep: parseFloat(hm[3]),
+      startBeats: hm[4] !== undefined ? parseFloat(hm[4]) : undefined,
+      degrees: expandDegrees(degrees),
+    },
     next: i,
   };
 }
@@ -167,7 +247,7 @@ function parseProgressionBlock(ls: Line[], start: number): { decl: ProgressionDe
 function expandDegrees(tokens: string[]): string[] {
   const out: string[] = [];
   for (const t of tokens) {
-    const m = t.match(/^([iIvV]+)\*(\d+)$/);
+    const m = t.match(/^([ivIVb#]+)\*(\d+)$/);
     if (m) {
       for (let k = 0; k < parseInt(m[2], 10); k++) out.push(m[1]);
     } else {
@@ -223,11 +303,26 @@ function parseRhythm(text: string, line: number): RhythmSpec {
   if (rest.startsWith("dotted ")) {
     return { kind: "durations", durs: rest.slice(7).trim().split(/\s+/).map(parseFloat) };
   }
+  if (rest.startsWith("hits ")) {
+    const hits = rest
+      .slice(5)
+      .trim()
+      .split(/\s+/)
+      .map((tok) => {
+        const [at, dur] = tok.split(":").map(parseFloat);
+        if (Number.isNaN(at) || Number.isNaN(dur)) {
+          throw new ParseError(`invalid hit token: ${tok}`, line);
+        }
+        return { at, dur };
+      });
+    return { kind: "hits", hits };
+  }
   let m = rest.match(/^quarters\s+(\d+)$/);
   if (m) return { kind: "quarters", count: parseInt(m[1], 10) };
   m = rest.match(/^eighths\s+(\d+)$/);
   if (m) return { kind: "eighths", count: parseInt(m[1], 10) };
   if (rest === "chord") return { kind: "chord" };
+  if (rest === "sustain") return { kind: "sustain" };
   throw new ParseError(`unknown rhythm: ${rest}`, line);
 }
 
@@ -236,36 +331,183 @@ function parseNotes(text: string, line: number): NoteSpec {
   if (rest.startsWith("chord ")) {
     return { kind: "chord", indices: rest.slice(6).split(/\s+/).map((n) => parseInt(n, 10)) };
   }
+  if (rest.startsWith("scale ")) {
+    return { kind: "scale", indices: rest.slice(6).split(/\s+/).map((n) => parseInt(n, 10)) };
+  }
   if (rest.startsWith("drum ")) {
     return { kind: "drum", pcs: rest.slice(5).split(/\s+/).map((n) => parseInt(n, 10)) };
   }
-  throw new ParseError("notes must be chord ... or drum ...", line);
+  if (rest.startsWith("seq ")) {
+    return { kind: "seq", tokens: parseNoteTokens(rest.slice(4).split(/\s+/), line) };
+  }
+  throw new ParseError("notes must be chord, scale, drum, or seq ...", line);
+}
+
+function parseNoteTokens(parts: string[], line: number): NoteToken[] {
+  const tokens: NoteToken[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p === "chord" && parts[i + 1] !== undefined) {
+      tokens.push({ kind: "chord", value: parseInt(parts[++i], 10) });
+    } else if (p === "scale" && parts[i + 1] !== undefined) {
+      tokens.push({ kind: "scale", value: parseInt(parts[++i], 10) });
+    } else if (p === "interval" && parts[i + 1] !== undefined) {
+      tokens.push({ kind: "interval", value: parseInt(parts[++i], 10) });
+    } else if (p === "drum" && parts[i + 1] !== undefined) {
+      tokens.push({ kind: "drum", value: parseInt(parts[++i], 10) });
+    } else {
+      throw new ParseError(`invalid seq token: ${p}`, line);
+    }
+  }
+  return tokens;
+}
+
+function parseSpanSlice(raw: string): SpanSlice {
+  if (raw.includes(",")) {
+    return { kind: "indices", indices: raw.split(",").map((n) => parseInt(n.trim(), 10)) };
+  }
+  if (raw.includes(":")) {
+    const [startStr, endStr] = raw.split(":");
+    const start = parseInt(startStr, 10);
+    if (endStr === "") return { kind: "range", start };
+    return { kind: "range", start, end: parseInt(endStr, 10) };
+  }
+  const idx = parseInt(raw, 10);
+  return { kind: "range", start: idx, end: idx + 1 };
+}
+
+function parseSpanRef(nameWithSlice: string): SpanRef {
+  const m = nameWithSlice.match(/^(\w+)(?:\[(.+)\])?$/);
+  if (!m) throw new Error(`invalid span ref: ${nameWithSlice}`);
+  return { name: m[1], slice: m[2] !== undefined ? parseSpanSlice(m[2]) : undefined };
 }
 
 function parsePlacement(text: string, line: number): PlacementDecl {
   const m = text.match(
-    /^place\s+(\w+)\s+on\s+(\w+)(?:\[(\d+)(?::(\d+))?\])?\s+track\s+(\w+)(?:\s+register\s+(\d+))?(?:\s+velocity\s+(\d+))?$/,
+    /^place\s+(\w+)\s+on\s+(\w+(?:\[[^\]]+\])?)\s+track\s+(\w+)(?:\s+register\s+(\d+))?(?:\s+velocity\s+(\d+))?$/,
   );
-  if (!m) throw new ParseError("expected place PAT on PROG[slice] track NAME", line);
-  let spanSlice: PlacementDecl["spanSlice"];
-  if (m[3] !== undefined) {
-    const start = parseInt(m[3], 10);
-    spanSlice = m[4] !== undefined ? { start, end: parseInt(m[4], 10) } : { start, end: start + 1 };
-  }
+  if (!m) throw new ParseError("expected place PAT on TARGET[slice] track NAME", line);
   return {
     pattern: m[1],
-    progression: m[2],
-    spanSlice,
+    target: parseSpanRef(m[2]),
+    track: m[3],
+    register: m[4] ? parseInt(m[4], 10) : undefined,
+    velocity: m[5] ? parseInt(m[5], 10) : undefined,
+  };
+}
+
+function parsePlaceRange(text: string, line: number): PlaceRangeDecl {
+  const m = text.match(
+    /^place_range\s+(\w+)\s+spans\s+(.+?)\s+track\s+(\w+)(?:\s+register\s+(\d+))?(?:\s+velocity\s+(\d+))?$/,
+  );
+  if (!m) throw new ParseError("expected place_range PAT spans ... track NAME", line);
+  const spanPart = m[2];
+  const trackIdx = spanPart.lastIndexOf(" track ");
+  // spans are everything between 'spans' and 'track' — already split by regex
+  return {
+    pattern: m[1],
+    spanRefs: m[2].trim().split(/\s+/).map(parseSpanRef),
+    track: m[3],
+    register: m[4] ? parseInt(m[4], 10) : undefined,
+    velocity: m[5] ? parseInt(m[5], 10) : undefined,
+  };
+}
+
+function parsePlaceVaryingBlock(ls: Line[], start: number): { decl: PlaceVaryingDecl; next: number } {
+  const head = ls[start].text;
+  const hm = head.match(
+    /^place_varying\s+(\w+)\s+spans\s+(.+?)\s+track\s+(\w+)(?:\s+register\s+(\d+))?(?:\s+velocity\s+(\d+))?$/,
+  );
+  if (!hm) throw new ParseError("expected place_varying PAT spans ... track NAME", ls[start].num);
+
+  const vary: VaryRule[] = [];
+  let i = start + 1;
+  while (i < ls.length && !TOP_LEVEL.test(ls[i].text)) {
+    const t = ls[i].text;
+    let vm = t.match(/^vary\s+every\s+(\d+)\s+use\s+(\w+)(?:\s+offset\s+(\d+))?$/);
+    if (vm) {
+      vary.push({
+        kind: "every",
+        every: parseInt(vm[1], 10),
+        pattern: vm[2],
+        offset: vm[3] !== undefined ? parseInt(vm[3], 10) : undefined,
+      });
+    } else {
+      vm = t.match(/^vary\s+chance\s+([\d.]+)\s+use\s+(\w+)(?:\s+seed\s+(\d+))?$/);
+      if (vm) {
+        vary.push({
+          kind: "chance",
+          chance: parseFloat(vm[1]),
+          pattern: vm[2],
+          seed: vm[3] !== undefined ? parseInt(vm[3], 10) : undefined,
+        });
+      } else {
+        vm = t.match(/^vary\s+on\s+([\d,\s]+)\s+use\s+(\w+)$/);
+        if (vm) {
+          vary.push({
+            kind: "onSteps",
+            steps: vm[1].split(/[,\s]+/).filter(Boolean).map((n) => parseInt(n, 10)),
+            pattern: vm[2],
+          });
+        } else {
+          throw new ParseError("expected vary every|chance|on ...", ls[i].num);
+        }
+      }
+    }
+    i++;
+  }
+
+  return {
+    decl: {
+      defaultPattern: hm[1],
+      spanRefs: hm[2].trim().split(/\s+/).map(parseSpanRef),
+      track: hm[3],
+      register: hm[4] ? parseInt(hm[4], 10) : undefined,
+      velocity: hm[5] ? parseInt(hm[5], 10) : undefined,
+      vary,
+    },
+    next: i,
+  };
+}
+
+function parsePlaceNote(text: string, line: number): PlaceNoteDecl {
+  const m = text.match(
+    /^place_note\s+(degree|chord|pc)\s+([\d.]+)\s+(?:span\s+(\w+(?:\[[^\]]+\])?)|at\s+([\d.]+))\s+track\s+(\w+)\s+register\s+(\d+)\s+dur\s+([\d.]+)(?:\s+velocity\s+(\d+))?$/,
+  );
+  if (!m) {
+    throw new ParseError(
+      "expected place_note degree|chord|pc N span TARGET|at BEATS track NAME register R dur D",
+      line,
+    );
+  }
+  return {
+    pitch: { kind: m[1] as "degree" | "chord" | "pc", value: parseFloat(m[2]) },
+    spanRef: m[3] !== undefined ? parseSpanRef(m[3]) : undefined,
+    atBeats: m[4] !== undefined ? parseFloat(m[4]) : undefined,
     track: m[5],
-    register: m[6] ? parseInt(m[6], 10) : undefined,
-    velocity: m[7] ? parseInt(m[7], 10) : undefined,
+    register: parseInt(m[6], 10),
+    durBeats: parseFloat(m[7]),
+    velocity: m[8] !== undefined ? parseInt(m[8], 10) : undefined,
+  };
+}
+
+function parseSidechain(text: string, line: number): SidechainDecl {
+  const m = text.match(
+    /^sidechain\s+trigger\s+(\w+)\s+ducks\s+([\w\s]+?)(?:\s+amount\s+([\d.]+))?(?:\s+release\s+(\d+))?$/,
+  );
+  if (!m) throw new ParseError("expected sidechain trigger T ducks A B [amount N] [release MS]", line);
+  return {
+    trigger: m[1],
+    ducks: m[2].trim().split(/\s+/),
+    amount: m[3] !== undefined ? parseFloat(m[3]) : undefined,
+    releaseMs: m[4] !== undefined ? parseInt(m[4], 10) : undefined,
   };
 }
 
 function parseVoiceLeading(text: string, line: number): VoiceLeadingDecl {
-  const m = text.match(/^voice_leading\s+(\w+)\s+on\s+(\w+)$/);
-  if (!m) throw new ParseError("expected voice_leading TRACK on PROG", line);
-  return { track: m[1], progression: m[2] };
+  const m = text.match(/^voice_leading\s+(\w+)\s+on\s+(\w+|\*)$/);
+  if (!m) throw new ParseError("expected voice_leading TRACK on TARGET", line);
+  return { track: m[1], target: m[2] };
 }
 
 function parseRegister(text: string, line: number): RegisterRangeDecl {
@@ -313,6 +555,10 @@ export function rhythmToOnsets(
         { at: 0, dur: 1 },
         { at: 0, dur: 1 },
       ];
+    case "sustain":
+      return [{ at: 0, dur: 1 }];
+    case "hits":
+      return spec.hits.flatMap((h) => [{ at: h.at, dur: h.dur }]);
     case "durations": {
       let at = 0;
       return spec.durs.map((dur) => {
@@ -325,3 +571,33 @@ export function rhythmToOnsets(
       return [];
   }
 }
+
+function noteSpecsToMelodicFlat(spec: NoteSpec) {
+  if (spec.kind === "chord") {
+    return spec.indices.map((value) => ({ kind: "chord_tone" as const, value }));
+  }
+  if (spec.kind === "scale") {
+    return spec.indices.map((value) => ({ kind: "scale_degree" as const, value }));
+  }
+  if (spec.kind === "drum") {
+    return spec.pcs.map((value) => ({ kind: "fixed_pc" as const, value }));
+  }
+  return noteTokensToMelodic(spec.tokens);
+}
+
+function noteTokensToMelodic(tokens: NoteToken[]) {
+  return tokens.map((t) => {
+    switch (t.kind) {
+      case "chord":
+        return { kind: "chord_tone" as const, value: t.value };
+      case "scale":
+        return { kind: "scale_degree" as const, value: t.value };
+      case "interval":
+        return { kind: "interval_from_prev" as const, value: t.value };
+      case "drum":
+        return { kind: "fixed_pc" as const, value: t.value };
+    }
+  });
+}
+
+export { noteSpecsToMelodicFlat as noteSpecsToMelodic, noteTokensToMelodic };

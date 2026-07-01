@@ -1,0 +1,106 @@
+# halflight.loop — DSL equivalent of src/examples/halflight.ts
+@tempo 92
+@meter 4/4
+@swing 0.22
+
+key minor C# natural_minor
+key dorian C# dorian
+
+track drums percussion channel 10
+track bass instrument wobble_bass channel 2
+track stab instrument clavinet_stab channel 3
+track pad instrument warm_pad channel 4
+track lead instrument supersaw_lead channel 5
+
+progression intro key minor beats 4 start 0:
+  i VI VII i i VI VII i
+
+progression verse key minor beats 4 start 32:
+  i VI VII i i VI VII i
+
+progression bridge key dorian beats 4 start 64:
+  i IV VII i i IV VII i
+
+progression outro key minor beats 4 start 96:
+  i VII VI v i VII VI i
+
+section intro progression intro
+section verse progression verse
+section bridge progression bridge
+section outro progression outro
+
+pattern pad_pat unit 4 register 4:
+  rhythm chord
+  notes chord 0 1 2
+
+pattern kick unit 4 register 2:
+  rhythm "X x x x"
+  notes drum 0 0 0 0
+
+pattern hat_normal unit 4 register 2:
+  rhythm "x X x X x X x X"
+  notes drum 6 6 6 6 6 6 6 6
+
+pattern hat_fill unit 4 register 2:
+  rhythm "x X x X x X X X X X X X"
+  notes drum 6 6 6 6 6 6 6 6 6 6 6 6
+
+pattern snare unit 4 register 2:
+  rhythm ". x . x"
+  notes drum 2 2
+
+pattern bass_groove unit 4 register 2:
+  rhythm "X . x . X . x ."
+  notes seq chord 0 interval 12 chord 0 interval 12
+
+pattern bass_outro unit 4 register 2:
+  rhythm "X . . . X . . ."
+  notes chord 0 0
+
+pattern stab_pat unit 4 register 4:
+  rhythm hits 0.375:0.1 0.875:0.1
+  notes chord 0 1 2
+
+pattern phrase_a unit 4 register 5:
+  rhythm dotted 0.25 0.125 0.125 0.5
+  notes scale 0 2 4 2
+
+pattern phrase_b unit 4 register 5:
+  rhythm dotted 0.25 0.125 0.125 0.25 0.25
+  notes scale 0 2 4 5 4
+
+place_range pad_pat spans intro verse bridge outro track pad velocity 55
+voice_leading pad on *
+register pad 57 79
+
+envelope pad_fade_in pad gain linear 0 16 0.05 0.55
+envelope pad_fade_out pad gain linear 96 128 0.55 0.18
+envelope filter_open pad filter.cutoff exp 0 96 320 4000
+envelope filter_close pad filter.cutoff exp 96 128 4000 600
+
+sidechain trigger drums ducks bass stab pad lead amount 0.3 release 200
+
+place_range kick spans intro[4:] verse bridge track drums register 2 velocity 108
+place_range kick spans outro[4:] track drums register 2 velocity 100
+
+place_varying hat_normal spans verse bridge track drums register 2 velocity 60
+  vary every 4 use hat_fill offset 3
+
+place_range snare spans verse bridge track drums register 2 velocity 95
+place_range snare spans outro[4:] track drums register 2 velocity 88
+
+place_range bass_groove spans verse bridge track bass register 2 velocity 100
+place_range bass_outro spans outro track bass register 2 velocity 85
+
+envelope bass_fade bass gain linear 32 40 0.05 0.9
+
+place_range stab_pat spans bridge track stab velocity 85
+voice_leading stab on bridge
+register stab 57 76
+envelope stab_fade stab gain linear 64 72 0.05 0.55
+
+place phrase_a on verse[0,2,4,6] track lead register 5 velocity 100
+place phrase_b on bridge[0,2,4,6] track lead register 5 velocity 108
+
+place_note degree 0 span outro[3] track lead register 5 dur 3.5 velocity 80
+place_note degree 0 span outro[7] track lead register 5 dur 3.5 velocity 90

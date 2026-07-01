@@ -22,7 +22,8 @@ npx tsx src/run.ts                     # list available examples
 npx tsx src/run.ts bridge_demo         # 8-bar A+B demo (all pitched = instrument graphs)
 npx tsx src/run.ts halflight           # render one example → ./outputs/
 npx tsx src/run.ts halflight --explain # also print structured analysis
-npx tsx src/run_loop.ts examples/loop/electronic_loop.loop  # compile .loop DSL → WAV
+npx tsx src/run_loop.ts examples/loop/halflight.loop  # compile .loop DSL → WAV
+npx tsx src/run_loop.ts examples/loop/bridge_demo.loop --explain
 ```
 
 Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
@@ -37,7 +38,10 @@ Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
 | `npm run intent:check` | Intent specs match graph structure |
 | `npm run explain:update` | Regenerate `snapshots/explain/*.txt` after intentional changes |
 | `npm run explain:check` | Verify explain output matches committed snapshots |
+| `npm run loop:run` | Compile/render a `.loop` file → WAV |
 | `npm run synth:sweep` | Render isolated instrument notes → `./outputs/synth_*.wav` |
+
+**`.loop` DSL:** [docs/dloop_syntax.md](docs/dloop_syntax.md) — golden-tested against core examples.
 
 **Collaboration loop:** [docs/collaboration_loop.md](docs/collaboration_loop.md)
 
@@ -146,10 +150,10 @@ src/
 
 ## Known gaps (next-round candidates)
 
-1. DSL parser — current GraphBuilder is verbose; textual DSL would compress dramatically
-2. Sub-bar timing addressing — placing events at specific beats without custom patterns
-3. Per-event velocity envelopes within an instance (build across N bars)
-4. Real key modulation (not just mode shifts on same tonic) with pivot chords
-5. More synthesis voices — current set covers French house/atmospheric only
-6. Browser version with live editing — kernel is platform-agnostic
-7. Audio-rate sidechain via AudioWorklet
+1. Sub-bar timing addressing — placing events at specific beats without custom patterns
+2. Per-event velocity envelopes within an instance (build across N bars)
+3. Real key modulation (not just mode shifts on same tonic) with pivot chords
+4. More synthesis voices — current set covers French house/atmospheric only
+5. Browser version with live editing — kernel is platform-agnostic
+6. Audio-rate sidechain via AudioWorklet
+7. Port remaining registry examples (`strata`, `daft_punk`, …) to `.loop`
