@@ -108,10 +108,28 @@ export interface MathNode {
   offset?: AudioParam;
 }
 
+/**
+ * Effect processors. All are wet/dry-mixable via a `mix` param (0 = dry,
+ * 1 = fully wet). Parameter contract per effectType:
+ *
+ *   distortion  amount (drive, default 1.5), mix (default 1)
+ *   delay       time (sec, default 0.25), feedback (0..0.95, default 0.35),
+ *               mix (default 0.35)
+ *   chorus      rate (Hz, default 0.8), depth (sec, default 0.004),
+ *               mix (default 0.5)
+ *   reverb      duration (sec, default 1.8), decay (shape, default 0.4),
+ *               mix (default 0.3)
+ *   compressor  threshold (dB, default -18), ratio (default 4),
+ *               attack (sec, default 0.01), release (sec, default 0.2),
+ *               knee (dB, default 12), makeup (linear gain, default 1)
+ *
+ * Params are resolved statically per voice ($freq/$vel allowed, node refs
+ * are not — effects are structure, not modulation targets, for now).
+ */
 export interface EffectNode {
   kind: "audio_node";
   type: "effect";
-  effectType: "distortion" | "delay" | "chorus" | "compressor";
+  effectType: "distortion" | "delay" | "chorus" | "reverb" | "compressor";
   input: string;
   params?: Record<string, AudioParam>;
 }

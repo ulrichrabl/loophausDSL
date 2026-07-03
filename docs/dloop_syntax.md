@@ -29,7 +29,10 @@ track bass instrument wobble_bass channel 2
 track drums percussion channel 10
 ```
 
-Instrument names match `src/instruments/registry.ts`.
+Instrument names match `src/instruments/registry.ts`. Instruments with
+built-in effect chains: `echo_pluck` (feedback delay), `shimmer_pad`
+(chorus → reverb), `pressed_bass` (drive → compressor),
+`broken_signal_lead` (distortion). See `examples/loop/effects_demo.loop`.
 
 ## Progressions & sections
 

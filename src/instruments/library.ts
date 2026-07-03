@@ -203,6 +203,119 @@ export function defineBrokenSignalLead(b: GraphBuilder) {
   });
 }
 
+/**
+ * Echo Pluck — tight square/saw pluck into a feedback delay.
+ *
+ * The delay sits AFTER the amp envelope: the envelope gates the dry note,
+ * but the wet path keeps ringing, so each pluck trails echoes. Delay time
+ * 0.28s ≈ dotted eighth at 160 BPM.
+ */
+export function defineEchoPluck(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    sq:  { kind: "audio_node", type: "osc", wave: "square", freq: "$freq" },
+    saw: { kind: "audio_node", type: "osc", wave: "saw",    freq: "$freq", detune: 5 },
+    mix: { kind: "audio_node", type: "mixer", inputs: ["sq", "saw"], gains: [0.5, 0.35] },
+
+    ampEnv:    { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.002, d: 0.22 },
+    filterEnv: { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.002, d: 0.12 },
+
+    filter: { kind: "audio_node", type: "filter", filterType: "lowpass",
+              input: "mix",
+              cutoff: { base: 600, mod: [{ source: "filterEnv", amount: 2800 }] },
+              q: 2 },
+
+    amp:  { kind: "audio_node", type: "amp", input: "filter",
+            gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.6 }] } },
+
+    echo: { kind: "audio_node", type: "effect", effectType: "delay",
+            input: "amp", params: { time: 0.28, feedback: 0.45, mix: 0.4 } },
+  };
+  return b.defineInstrument({
+    name: "echo_pluck",
+    polyphony: 6,
+    nodes,
+    output: "echo",
+  });
+}
+
+/**
+ * Shimmer Pad — detuned saws through chorus into a long reverb.
+ * Chorus widens/blurs the detune; the reverb tail carries chords between
+ * changes. Both effects are post-envelope so releases bloom into the verb.
+ */
+export function defineShimmerPad(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    saw1: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: -9 },
+    saw2: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: 0 },
+    saw3: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: 9 },
+    mix:  { kind: "audio_node", type: "mixer", inputs: ["saw1", "saw2", "saw3"],
+            gains: [0.25, 0.3, 0.25] },
+
+    ampEnv: { kind: "audio_node", type: "env_gen", envType: "adsr",
+              a: 0.5, d: 0.4, s: 0.7, r: 0.9 },
+
+    filter: { kind: "audio_node", type: "filter", filterType: "lowpass",
+              input: "mix", cutoff: 1800, q: 0.6 },
+
+    amp: { kind: "audio_node", type: "amp", input: "filter",
+           gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.3 }] } },
+
+    chorus: { kind: "audio_node", type: "effect", effectType: "chorus",
+              input: "amp", params: { rate: 0.6, depth: 0.006, mix: 0.5 } },
+    verb:   { kind: "audio_node", type: "effect", effectType: "reverb",
+              input: "chorus", params: { duration: 2.4, decay: 0.5, mix: 0.35 } },
+  };
+  return b.defineInstrument({
+    name: "shimmer_pad",
+    polyphony: 8,
+    nodes,
+    output: "verb",
+  });
+}
+
+/**
+ * Pressed Bass — detuned saws + sub, mild drive, then a compressor for
+ * glue. Distortion is pre-amp (part of the tone); the compressor is last
+ * in the chain to even out level across the register.
+ */
+export function definePressedBass(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    saw1: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: -5 },
+    saw2: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: +5 },
+    subFreq: { kind: "audio_node", type: "math", op: "div", a: "$freq", b: 2 },
+    sub:  { kind: "audio_node", type: "osc", wave: "sine",
+            freq: { base: 0, mod: [{ source: "subFreq", amount: 1 }] } },
+    mix:  { kind: "audio_node", type: "mixer", inputs: ["saw1", "saw2", "sub"],
+            gains: [0.4, 0.4, 0.6] },
+
+    ampEnv:    { kind: "audio_node", type: "env_gen", envType: "adsr",
+                 a: 0.004, d: 0.12, s: 0.6, r: 0.15 },
+    filterEnv: { kind: "audio_node", type: "env_gen", envType: "ad",
+                 a: 0.004, d: 0.2 },
+
+    filter: { kind: "audio_node", type: "filter", filterType: "lowpass",
+              input: "mix",
+              cutoff: { base: 150, mod: [{ source: "filterEnv", amount: 2200 }] },
+              q: 5 },
+
+    drive: { kind: "audio_node", type: "effect", effectType: "distortion",
+             input: "filter", params: { amount: 2.5, mix: 0.8 } },
+
+    amp:  { kind: "audio_node", type: "amp", input: "drive",
+            gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.8 }] } },
+
+    comp: { kind: "audio_node", type: "effect", effectType: "compressor",
+            input: "amp",
+            params: { threshold: -20, ratio: 5, attack: 0.005, release: 0.15, makeup: 1.2 } },
+  };
+  return b.defineInstrument({
+    name: "pressed_bass",
+    polyphony: 4,
+    nodes,
+    output: "comp",
+  });
+}
+
 export function defineClavinetStab(b: GraphBuilder) {
   const nodes: Record<string, AudioNode> = {
     sq1: { kind: "audio_node", type: "osc", wave: "square", freq: "$freq", detune: -3 },

@@ -45,7 +45,8 @@ async function prerenderInstrumentBuffer(
       midi,
       durationSec: durSec,
       sampleRate: sr,
-      tailSec: 1.5,
+      // tailSec omitted: renderInstrumentNote sizes the tail from the
+      // instrument's effects so delay/reverb ring-out isn't truncated.
     });
   } catch {
     const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: sr });

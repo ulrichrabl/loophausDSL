@@ -72,6 +72,19 @@ describe(".loop DSL", () => {
     goldenMatch("chromatic_modulation_demo.loop", buildChromaticModulationDemo);
   });
 
+  it("effects_demo.loop compiles with effect-chain instruments in the same graph", () => {
+    const src = fs.readFileSync(path.join(loopDir, "effects_demo.loop"), "utf8");
+    const g = compileLoop(src);
+    const result = solve(g);
+    expect(result.events.length).toBeGreaterThan(50);
+    // The instrument nodes must live in the compiled graph itself, so the
+    // renderer can look them up from track references.
+    const instruments = [...g.nodes.values()].filter(n => n.kind === "instrument");
+    expect(instruments.map(i => (i as { name: string }).name).sort()).toEqual(
+      ["echo_pluck", "pressed_bass", "shimmer_pad"],
+    );
+  });
+
   it("polymorph.loop matches core event structure of TS builder", () => {
     const src = fs.readFileSync(path.join(loopDir, "polymorph.loop"), "utf8");
     const gLoop = compileLoop(src);

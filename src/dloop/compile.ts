@@ -4,7 +4,7 @@
 import { GraphBuilder, lookup } from "../core/graph.ts";
 import type { Graph, HarmonicSpan, KeyContext, MelodicNoteSpec } from "../core/types.ts";
 import { pcFromName } from "../core/theory.ts";
-import { buildInstrument, type InstrumentName } from "../instruments/registry.ts";
+import { defineInstrumentIn, type InstrumentName } from "../instruments/registry.ts";
 import { noteSpecsToMelodic, parseLoop, rhythmToOnsets } from "./parse.ts";
 import type {
   LoopFile,
@@ -63,8 +63,9 @@ export function compileLoopFile(file: LoopFile): Graph {
     let instrumentRef: string | undefined;
     if (t.instrument) {
       if (!instrumentIds.has(t.instrument)) {
-        const built = buildInstrument(t.instrument as InstrumentName);
-        instrumentIds.set(t.instrument, built.id);
+        // Register in THIS builder — the renderer looks the instrument node
+        // up in the same graph as the track that references it.
+        instrumentIds.set(t.instrument, defineInstrumentIn(b, t.instrument as InstrumentName));
       }
       instrumentRef = instrumentIds.get(t.instrument);
     }
