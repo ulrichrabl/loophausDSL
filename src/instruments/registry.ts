@@ -11,6 +11,9 @@ import {
   defineFeltSynth,
   defineBrokenSignalLead,
   defineClavinetStab,
+  defineEchoPluck,
+  defineShimmerPad,
+  definePressedBass,
 } from "../instruments/library.ts";
 
 export type InstrumentName =
@@ -19,7 +22,10 @@ export type InstrumentName =
   | "warm_pad"
   | "felt_synth"
   | "broken_signal_lead"
-  | "clavinet_stab";
+  | "clavinet_stab"
+  | "echo_pluck"
+  | "shimmer_pad"
+  | "pressed_bass";
 
 type InstrumentBuilder = (b: GraphBuilder) => Id;
 
@@ -30,6 +36,9 @@ export const instrumentNames: InstrumentName[] = [
   "felt_synth",
   "broken_signal_lead",
   "clavinet_stab",
+  "echo_pluck",
+  "shimmer_pad",
+  "pressed_bass",
 ];
 
 const BUILDERS: Record<InstrumentName, InstrumentBuilder> = {
@@ -39,6 +48,9 @@ const BUILDERS: Record<InstrumentName, InstrumentBuilder> = {
   felt_synth: defineFeltSynth,
   broken_signal_lead: defineBrokenSignalLead,
   clavinet_stab: defineClavinetStab,
+  echo_pluck: defineEchoPluck,
+  shimmer_pad: defineShimmerPad,
+  pressed_bass: definePressedBass,
 };
 
 export interface BuiltInstrument {
@@ -60,15 +72,25 @@ export function asInstrument(node: InstrumentNode): Instrument {
 }
 
 export function buildInstrument(name: InstrumentName): BuiltInstrument {
+  const b = new GraphBuilder();
+  const id = defineInstrumentIn(b, name);
+  const node = b.graph.nodes.get(id) as InstrumentNode;
+  return { graph: b.graph, id, instrument: asInstrument(node) };
+}
+
+/**
+ * Register a library instrument inside an existing builder, so the
+ * instrument node lives in the same graph as the tracks that reference it.
+ */
+export function defineInstrumentIn(b: GraphBuilder, name: InstrumentName): Id {
   const builder = BUILDERS[name];
   if (!builder) throw new Error(`Unknown instrument: ${name}`);
-  const b = new GraphBuilder();
   const id = builder(b);
   const node = b.graph.nodes.get(id);
   if (!node || node.kind !== "instrument") {
     throw new Error(`Instrument builder did not register an instrument node: ${name}`);
   }
-  return { graph: b.graph, id, instrument: asInstrument(node) };
+  return id;
 }
 
 export function findInstrument(g: Graph, id: Id): Instrument | null {

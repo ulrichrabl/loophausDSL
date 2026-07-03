@@ -24,6 +24,7 @@ npx tsx src/run.ts halflight           # render one example → ./outputs/
 npx tsx src/run.ts halflight --explain # also print structured analysis
 npx tsx src/run.ts modulation_demo      # C minor → G minor key change
 npx tsx src/run_loop.ts examples/loop/modulation_demo.loop
+npx tsx src/run_loop.ts examples/loop/effects_demo.loop   # per-instrument effect chains
 ```
 
 Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
@@ -46,6 +47,23 @@ Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
 **Collaboration loop:** [docs/collaboration_loop.md](docs/collaboration_loop.md)
 
 Each rendered WAV goes to `./outputs/<name>.wav` (or `$OUTPUT_DIR`).
+
+## Synth effects (`src/core/audio_types.ts`)
+
+Instruments are declarative audio graphs; effects are just nodes in the chain,
+placed anywhere via `input:`. Five effect types, all wet/dry-mixable:
+
+| Effect | Parameters | Example instrument |
+|--------|-----------|--------------------|
+| `distortion` | amount, mix | `broken_signal_lead`, `pressed_bass` |
+| `delay` | time, feedback, mix | `echo_pluck` |
+| `chorus` | rate, depth, mix | `shimmer_pad` |
+| `reverb` | duration, decay, mix | `shimmer_pad` |
+| `compressor` | threshold, ratio, attack, release, knee, makeup | `pressed_bass` |
+
+Time-based effects automatically extend the voice's render tail
+(`instrumentTailSec`) so delay feedback and reverb decay ring out instead of
+being truncated. See `examples/loop/effects_demo.loop` for all of them in a mix.
 
 ## Kernel — six primitives (`src/core/types.ts`)
 
@@ -154,7 +172,7 @@ src/
 ## Known gaps (next-round candidates)
 
 1. Per-event velocity envelopes within an instance (build across N bars) — `noteEnvelope` exists in TS API
-2. More synthesis voices — current set covers French house/atmospheric only
+2. More synthesis voices — current set covers French house/atmospheric plus effect showcases (`echo_pluck`, `shimmer_pad`, `pressed_bass`)
 3. Browser version with live editing — kernel is platform-agnostic
 4. Audio-rate sidechain via AudioWorklet
 5. Full `.loop` ports of remaining registry examples (`daft_punk`, `strata`, `helios`, …)

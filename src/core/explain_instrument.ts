@@ -62,8 +62,12 @@ function describeNode(node: AudioNode): string {
       return `lfo ${node.wave}, rate=${fmtParam(node.rate)}`;
     case "math":
       return `math ${node.op}(${fmtParam(node.a)}, ${fmtParam(node.b)})`;
-    case "effect":
-      return `effect ${node.effectType} ← ${node.input}`;
+    case "effect": {
+      const params = node.params
+        ? " (" + Object.entries(node.params).map(([k, v]) => `${k}=${fmtParam(v)}`).join(", ") + ")"
+        : "";
+      return `effect ${node.effectType} ← ${node.input}${params}`;
+    }
     default:
       return "unknown";
   }

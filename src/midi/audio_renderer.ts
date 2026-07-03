@@ -23,25 +23,81 @@ interface VoiceContext {
   freqHz: number;
   velocity: number;         // 0..1
   outputDest: any;          // AudioNode to connect the voice's output to (track bus)
+  /** Source run-out after gate-off. Computed from envelope releases if unset. */
+  tailSec?: number;
 }
 
 interface BuiltNode {
   /** The Web Audio node producing audio output (if any). */
   audioOut?: any;
+  /**
+   * Where upstream audio should connect. Compound nodes (delay, chorus,
+   * reverb — anything with internal wet/dry routing) have a distinct entry
+   * point; simple nodes leave this unset and receive input on audioOut.
+   */
+  audioIn?: any;
   /** Some nodes produce control-rate signals; same property holds it. */
   controlOut?: any;
   /** Filter/amp nodes have AudioParams (cutoff, gain) that modulation targets. */
   params?: Record<string, any>;
+  /** Internal source nodes needing explicit start/stop (e.g. LFO oscillator). */
+  sources?: any[];
 }
 
 interface VoiceHandle {
   noteGain: any;   // The music-graph-controllable gain at the voice's output
 }
 
-const TAIL_SEC = 0.5;  // padding after note-off for release decay
+const TAIL_SEC = 0.5;  // minimum padding after note-off for release decay
+
+/**
+ * How long sources must keep running after gate-off so envelope releases
+ * complete. (Effect ring-out is separate — see instrumentTailSec.)
+ */
+function releaseTailSec(inst: Instrument): number {
+  let tail = TAIL_SEC;
+  for (const node of Object.values(inst.audioNodes)) {
+    if ((node as AudioNode).type === "env_gen") {
+      const r = (node as { r?: number }).r ?? 0;
+      tail = Math.max(tail, r + 0.1);
+    }
+  }
+  return tail;
+}
+
+/**
+ * Total tail an instrument needs after note-off: envelope releases plus
+ * ring-out of time-based effects (delay feedback, reverb decay). Used to
+ * size pre-render buffers so echoes and reverb tails aren't truncated.
+ */
+export function instrumentTailSec(inst: Instrument, minTailSec = 1.5): number {
+  let tail = Math.max(minTailSec, releaseTailSec(inst));
+  for (const node of Object.values(inst.audioNodes)) {
+    const n = node as AudioNode;
+    if (n.type !== "effect") continue;
+    const p = (name: string, dflt: number): number => {
+      const v = n.params?.[name];
+      return typeof v === "number" ? v : dflt;
+    };
+    if (n.effectType === "delay") {
+      const time = p("time", 0.25);
+      const feedback = Math.min(0.95, Math.max(0, p("feedback", 0.35)));
+      // Echoes repeat every `time` sec, decaying by `feedback` each pass.
+      // Ring until the echo falls below -60 dB (0.001).
+      const repeats = feedback > 0 ? Math.ceil(Math.log(0.001) / Math.log(feedback)) : 1;
+      tail += Math.min(6, time * repeats);
+    } else if (n.effectType === "reverb") {
+      tail += p("duration", 1.8);
+    } else if (n.effectType === "chorus") {
+      tail += 0.05;
+    }
+  }
+  return Math.min(tail, 10);
+}
 
 export function renderInstrumentVoice(inst: Instrument, voice: VoiceContext): VoiceHandle {
   const { ctx } = voice;
+  voice.tailSec = voice.tailSec ?? releaseTailSec(inst);
   const built: Record<string, BuiltNode> = {};
   const order = topoSort(inst);
 
@@ -154,7 +210,7 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
     }
     case "noise": {
       const sr = ctx.sampleRate;
-      const lenSec = (voice.endTime - voice.startTime) + TAIL_SEC + 0.05;
+      const lenSec = (voice.endTime - voice.startTime) + (voice.tailSec ?? TAIL_SEC) + 0.05;
       const buf = ctx.createBuffer(1, Math.ceil(sr * Math.max(lenSec, 0.1)), sr);
       const data = buf.getChannelData(0);
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -212,7 +268,7 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
       const depth = resolveStatic(node.depth, voice) ?? 1;
       g.gain.value = depth;
       osc.connect(g);
-      return { audioOut: g, controlOut: g, params: { frequency: osc.frequency, gain: g.gain } };
+      return { audioOut: g, controlOut: g, params: { frequency: osc.frequency, gain: g.gain }, sources: [osc] };
     }
     case "math": {
       // For simple compile-time math (e.g. freq / 2), evaluate statically.
@@ -233,20 +289,129 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
       cs.offset.value = result;
       return { audioOut: cs, controlOut: cs };
     }
-    case "effect": {
-      // Minimal: only "distortion" implemented for now via WaveShaper
-      if (node.effectType === "distortion") {
-        const ws = ctx.createWaveShaper() as any;
-        const amount = resolveStatic(node.params?.amount, voice) ?? 1.5;
-        ws.curve = makeSoftClipCurve(amount);
-        ws.oversample = "2x";
-        return { audioOut: ws };
-      }
-      // Pass-through fallback
-      const g = ctx.createGain() as any;
-      return { audioOut: g };
+    case "effect":
+      return instantiateEffect(ctx, node, voice);
+  }
+}
+
+// ---- Effect instantiation -----------------------------------------------
+//
+// Compound effects share a shape:
+//
+//   audioIn ──┬── dryGain (1-mix) ──────────┬── audioOut
+//             └── [processing] ── wet (mix) ┘
+//
+// Upstream connects to audioIn (see wireMods); downstream reads audioOut.
+
+function instantiateEffect(ctx: OACType, node: import("../core/audio_types.ts").EffectNode, voice: VoiceContext): BuiltNode {
+  const p = (name: string, dflt: number): number =>
+    resolveStatic(node.params?.[name], voice) ?? dflt;
+
+  switch (node.effectType) {
+    case "distortion": {
+      const amount = p("amount", 1.5);
+      const mix = clamp01(p("mix", 1));
+      const ws = ctx.createWaveShaper() as any;
+      ws.curve = makeSoftClipCurve(amount);
+      ws.oversample = "2x";
+      if (mix >= 1) return { audioOut: ws };
+      return wetDry(ctx, ws, ws, mix);
+    }
+
+    case "delay": {
+      const time = Math.max(0.001, p("time", 0.25));
+      const feedback = Math.min(0.95, Math.max(0, p("feedback", 0.35)));
+      const mix = clamp01(p("mix", 0.35));
+      const delay = ctx.createDelay(Math.max(1, time)) as any;
+      delay.delayTime.value = time;
+      const fb = ctx.createGain() as any;
+      fb.gain.value = feedback;
+      delay.connect(fb);
+      fb.connect(delay);
+      return wetDry(ctx, delay, delay, mix);
+    }
+
+    case "chorus": {
+      const rate = Math.max(0.01, p("rate", 0.8));
+      const depth = Math.max(0, p("depth", 0.004));
+      const mix = clamp01(p("mix", 0.5));
+      // Short modulated delay line. Base delay sits above max LFO swing so
+      // delayTime never goes negative.
+      const base = Math.max(0.012, depth * 1.5);
+      const delay = ctx.createDelay(0.1) as any;
+      delay.delayTime.value = base;
+      const lfo = ctx.createOscillator() as any;
+      lfo.type = "sine";
+      lfo.frequency.value = rate;
+      const lfoDepth = ctx.createGain() as any;
+      lfoDepth.gain.value = depth;
+      lfo.connect(lfoDepth);
+      lfoDepth.connect(delay.delayTime);
+      // Offline render: the context ends with the buffer, no stop() needed.
+      lfo.start(voice.startTime);
+      return wetDry(ctx, delay, delay, mix);
+    }
+
+    case "reverb": {
+      const duration = Math.max(0.1, p("duration", 1.8));
+      const decay = Math.max(0.05, p("decay", 0.4));
+      const mix = clamp01(p("mix", 0.3));
+      const conv = ctx.createConvolver() as any;
+      conv.buffer = makeImpulse(ctx, duration, decay);
+      return wetDry(ctx, conv, conv, mix);
+    }
+
+    case "compressor": {
+      const comp = ctx.createDynamicsCompressor() as any;
+      comp.threshold.value = p("threshold", -18);
+      comp.ratio.value = p("ratio", 4);
+      comp.attack.value = Math.max(0.001, p("attack", 0.01));
+      comp.release.value = Math.max(0.01, p("release", 0.2));
+      comp.knee.value = p("knee", 12);
+      const makeup = ctx.createGain() as any;
+      makeup.gain.value = p("makeup", 1);
+      comp.connect(makeup);
+      return { audioIn: comp, audioOut: makeup };
     }
   }
+}
+
+/**
+ * Wrap a processor in parallel wet/dry routing. `wetIn` receives the input
+ * signal; `wetOut` produces the processed signal.
+ */
+function wetDry(ctx: OACType, wetIn: any, wetOut: any, mix: number): BuiltNode {
+  const input = ctx.createGain() as any;
+  const output = ctx.createGain() as any;
+  const dry = ctx.createGain() as any;
+  dry.gain.value = 1 - mix;
+  const wet = ctx.createGain() as any;
+  wet.gain.value = mix;
+  input.connect(dry);
+  dry.connect(output);
+  input.connect(wetIn);
+  wetOut.connect(wet);
+  wet.connect(output);
+  return { audioIn: input, audioOut: output };
+}
+
+function clamp01(x: number): number {
+  return Math.max(0, Math.min(1, x));
+}
+
+/** Exponentially decaying stereo noise impulse for convolution reverb. */
+function makeImpulse(ctx: OACType, durSec: number, decayShape: number): any {
+  const sr = ctx.sampleRate;
+  const length = Math.ceil(sr * durSec);
+  const buf = ctx.createBuffer(2, length, sr);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buf.getChannelData(ch);
+    for (let i = 0; i < length; i++) {
+      const t = i / sr;
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-t / (durSec * decayShape));
+    }
+  }
+  return buf;
 }
 
 // ---- Resolve a Param to a static number when possible -------------------
@@ -321,7 +486,7 @@ function wireMods(ctx: OACType, node: AudioNode, b: BuiltNode, voice: VoiceConte
       }
       break;
     }
-    case "effect": connectAudio(node.input, b.audioOut); break;
+    case "effect": connectAudio(node.input, b.audioIn ?? b.audioOut); break;
   }
 
   // Modulation routing — wire any Param that's a node-ref or {base, mod[]} 
@@ -373,12 +538,15 @@ function wireMods(ctx: OACType, node: AudioNode, b: BuiltNode, voice: VoiceConte
 function scheduleNode(node: AudioNode, b: BuiltNode, voice: VoiceContext) {
   const startable = ["osc", "noise", "lfo", "env_gen", "math"];
   if (!startable.includes(node.type)) return;
-  if (!b.audioOut?.start) return;
-  try {
-    b.audioOut.start(voice.startTime);
-    b.audioOut.stop(voice.endTime + TAIL_SEC);
-  } catch (_e) {
-    // already started
+  const stopAt = voice.endTime + (voice.tailSec ?? TAIL_SEC);
+  for (const src of [b.audioOut, ...(b.sources ?? [])]) {
+    if (!src?.start) continue;
+    try {
+      src.start(voice.startTime);
+      src.stop(stopAt);
+    } catch (_e) {
+      // already started
+    }
   }
 }
 

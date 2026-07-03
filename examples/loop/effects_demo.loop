@@ -1,0 +1,42 @@
+# effects_demo.loop — showcases per-instrument effect chains
+#
+# echo_pluck   — pluck into a feedback delay (echoes ring past each note)
+# shimmer_pad  — chorus into long reverb (chords bloom and sustain)
+# pressed_bass — drive + compressor (dense, even low end)
+@tempo 110
+@meter 4/4
+@key A natural_minor
+
+track drums percussion channel 10
+track bass instrument pressed_bass channel 2
+track pad instrument shimmer_pad channel 3
+track pluck instrument echo_pluck channel 4
+
+progression main beats 8:
+  i VI III VII
+
+pattern beat unit 4 register 2 velocity 100:
+  rhythm quarters 4
+  notes drum 0 0 0 0
+
+pattern bass_pat unit 2 register 2:
+  rhythm eighths 4
+  notes chord 0 0 2 0
+
+pattern pad_pat unit 8 register 4:
+  rhythm chord
+  notes chord 0 1 2
+
+# Sparse pluck line — the delay fills in the space between hits
+pattern pluck_pat unit 4 register 5:
+  rhythm dotted 0.375 0.375 0.25
+  notes chord 0 2 1
+
+place beat on main track drums
+place bass_pat on main track bass register 2
+place pad_pat on main track pad velocity 65
+place pluck_pat on main track pluck velocity 95
+
+voice_leading pad on main
+
+sidechain trigger drums ducks bass pad amount 0.3 release 150

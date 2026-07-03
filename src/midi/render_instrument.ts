@@ -3,7 +3,7 @@
  */
 import { OfflineAudioContext } from "node-web-audio-api";
 import type { Instrument } from "../core/audio_types.ts";
-import { renderInstrumentVoice } from "./audio_renderer.ts";
+import { instrumentTailSec, renderInstrumentVoice } from "./audio_renderer.ts";
 
 export function midiToHz(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
@@ -22,7 +22,9 @@ export async function renderInstrumentNote(
   opts: RenderNoteOptions,
 ): Promise<AudioBuffer> {
   const sr = opts.sampleRate ?? 44100;
-  const tailSec = opts.tailSec ?? 1.5;
+  // Effect ring-out (delay feedback, reverb decay) can far exceed the 1.5s
+  // default; size the buffer from the instrument's declared effects.
+  const tailSec = instrumentTailSec(inst, opts.tailSec ?? 1.5);
   const durSec = opts.durationSec;
   const ctx = new OfflineAudioContext({
     numberOfChannels: 2,

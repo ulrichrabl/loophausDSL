@@ -52,8 +52,17 @@ The minimum useful set. ~9 node kinds.
   Out: audio.
 - **VCA / Amp** — multiplicative amplifier. Params: gain. In: audio. Out: audio.
 - **Mixer** — weighted sum of audio inputs. Params: gains[]. In: audio[]. Out: audio.
-- **Effect** — delay, reverb, distortion, chorus, compression, saturation. Each
-  is a node with type-specific parameters.
+- **Effect** — per-voice effect processor with wet/dry routing. Implemented
+  types and their parameters (all with sensible defaults):
+  - `distortion` — amount (drive), mix
+  - `delay` — time (sec), feedback (0..0.95), mix
+  - `chorus` — rate (Hz), depth (sec), mix
+  - `reverb` — duration (sec), decay (shape), mix
+  - `compressor` — threshold (dB), ratio, attack, release, knee, makeup
+
+  Effects sit anywhere in an instrument chain (`input:` names the upstream
+  node). Time-based effects extend the voice's render tail automatically so
+  echoes and reverb ring out fully (see `instrumentTailSec`).
 
 ### Modulators (produce control-rate signals)
 - **EnvelopeGenerator** — ADSR, AD, AR, or custom shapes. Triggered by gate
