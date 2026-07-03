@@ -16,6 +16,7 @@
  */
 import { GraphBuilder } from "../core/graph.ts";
 import { pcFromName } from "../core/theory.ts";
+import { defineHouseInstruments } from "../instruments/house_stack.ts";
 
 export function buildPolymorph() {
   const b = new GraphBuilder();
@@ -28,12 +29,12 @@ export function buildPolymorph() {
   const keyDorian = b.key(pcFromName("F#"), "dorian");         // F# G# A B C# D# E
   // Difference: D vs D# (the 6th degree). Dorian's raised 6th gives the major IV.
 
-  // Tracks
-  const drumTrack = b.track("drums", 10, { program: 26, isPercussion: true });
-  const bassTrack = b.track("bass",  2,  { program: 38 });
-  const stabTrack = b.track("stab",  3,  { program: 8  });
-  const padTrack  = b.track("pad",   4,  { program: 91 });
-  const leadTrack = b.track("lead",  5,  { program: 82 });
+  const synths = defineHouseInstruments(b);
+  const drumTrack = b.track("drums", 10, { isPercussion: true });
+  const bassTrack = b.track("bass",  2,  { instrument: synths.bass });
+  const stabTrack = b.track("stab",  3,  { instrument: synths.stab });
+  const padTrack  = b.track("pad",   4,  { instrument: synths.pad });
+  const leadTrack = b.track("lead",  5,  { instrument: synths.lead });
 
   // ============= PROGRESSIONS (mini-notation!) =============
   // Section A: F# minor vamp — i bVI bIII bVII (Fm Dm Am Em? no — F#m D A E)
@@ -265,5 +266,5 @@ export function buildPolymorph() {
     degree: 0,                 // tonic, held
   });
 
-  return b.graph;
+  return { graph: b.graph };
 }

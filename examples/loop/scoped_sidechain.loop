@@ -1,0 +1,29 @@
+# scoped_sidechain.loop — sidechain only active in first section
+@tempo 100
+@meter 4/4
+@key C major
+
+track drums percussion channel 10
+track bass instrument wobble_bass channel 2
+
+progression section_a beats 4 start 0:
+  I IV V I
+
+progression section_b beats 4 start 16:
+  I IV V I
+
+section section_a progression section_a
+section section_b progression section_b
+
+pattern kick unit 4 register 2:
+  rhythm "X x x x"
+  notes drum 0 0 0 0
+
+pattern bass unit 4 register 2:
+  rhythm sustain
+  notes chord 0
+
+place_range kick spans section_a section_b track drums velocity 110
+place_range bass spans section_a section_b track bass register 2 velocity 90
+
+sidechain trigger drums ducks bass spans section_a amount 0.35 release 160

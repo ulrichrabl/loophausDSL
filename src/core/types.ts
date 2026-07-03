@@ -119,7 +119,8 @@ export type Relationship =
   | RhythmicPattern
   | MelodicPattern
   | EnvelopeBinding
-  | SidechainRelationship;
+  | SidechainRelationship
+  | Modulation;
 
 /**
  * Declares a sidechain ducking: whenever the `trigger` track emits an event,
@@ -132,8 +133,38 @@ export interface SidechainRelationship {
   id: Id;
   trigger: Ref<TrackContext>;
   ducks: Ref<TrackContext>[];
-  amount: number;             // 0 = no duck, 1 = full duck
-  releaseMs: number;          // time to recover
+  amount: number;
+  releaseMs: number;
+  /** When set, only duck from trigger hits within this beat range. */
+  startBeats?: number;
+  endBeats?: number;
+}
+
+/**
+ * Declares a change of tonal center from one KeyContext to another.
+ * Optionally references a pivot harmonic span and common-tone pitch classes
+ * that bridge the two keys. The solver uses this for cross-key voice-leading.
+ */
+export type ModulationMethod =
+  | "direct"
+  | "common_tone"
+  | "dominant"
+  | "chromatic_mediant"
+  | "enharmonic";
+
+export interface Modulation {
+  kind: "relationship";
+  type: "modulation";
+  id: Id;
+  fromKey: Ref<KeyContext>;
+  toKey: Ref<KeyContext>;
+  /** Beat where the new key takes effect (start of entry harmony). */
+  atBeats: number;
+  method: ModulationMethod;
+  /** Harmonic span acting as pivot (often the last chord of the old key). */
+  pivotSpan?: Ref<HarmonicSpan>;
+  /** Pitch classes emphasized at the boundary (common tones, dominant tones). */
+  pivotPcs?: PitchClass[];
 }
 
 /**

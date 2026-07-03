@@ -1,0 +1,11 @@
+{
+  "piece": "halflight",
+  "bars": 32,
+  "beats": 128,
+  "sections": ["intro", "verse", "bridge", "outro"],
+  "bridge": {
+    "startBeats": 64,
+    "endBeats": 96,
+    "mode": "dorian"
+  }
+}

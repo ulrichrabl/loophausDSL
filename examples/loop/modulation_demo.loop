@@ -1,0 +1,38 @@
+# modulation_demo.loop — C minor → G minor via dominant pivot
+@tempo 92
+@meter 4/4
+@swing 0.12
+
+key c_minor C natural_minor
+key g_minor G natural_minor
+
+track pad instrument warm_pad channel 4
+track bass instrument wobble_bass channel 2
+track drums percussion channel 10
+
+progression section_a key c_minor beats 4 start 0:
+  i VI III VII
+
+modulate from c_minor to g_minor at 16 method dominant pivot V duration 4
+
+progression section_b key g_minor beats 4 start 20:
+  i VI III VII
+
+pattern pad_pat unit 4 register 4:
+  rhythm chord
+  notes chord 0 1 2
+
+pattern bass_pat unit 4 register 2:
+  rhythm "X . . . X . . ."
+  notes chord 0 0
+
+pattern kick unit 4 register 2:
+  rhythm "X x x x"
+  notes drum 0 0 0 0
+
+place_range pad_pat spans section_a pivot section_b track pad velocity 58
+voice_leading pad on *
+register pad 55 79
+
+place_range bass_pat spans section_a pivot section_b track bass register 2 velocity 95
+place_range kick spans section_a pivot section_b track drums register 2 velocity 105

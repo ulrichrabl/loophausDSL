@@ -1,0 +1,8 @@
+node_modules/
+outputs/
+dist/
+*.wav
+*.mid
+.DS_Store
+.env
+.env.*

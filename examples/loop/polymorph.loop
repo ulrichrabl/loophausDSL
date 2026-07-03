@@ -1,0 +1,66 @@
+# polymorph.loop — F# minor / Dorian / minor mode shifts (core layers)
+@tempo 92
+@meter 4/4
+@swing 0.35
+
+key minor F# natural_minor
+key dorian F# dorian
+
+track drums percussion channel 10
+track bass instrument wobble_bass channel 2
+track pad instrument warm_pad channel 4
+track lead instrument supersaw_lead channel 5
+
+progression section_a key minor beats 4 start 0:
+  i VII VI VII i VII VI VII
+
+progression section_b key dorian beats 4 start 32:
+  i IV i IV i IV VII i
+
+progression section_c key minor beats 4 start 64:
+  i VI VII v i VI VII i
+
+section section_a progression section_a
+section section_b progression section_b
+section section_c progression section_c
+
+pattern pad_pat unit 4 register 4:
+  rhythm chord
+  notes chord 0 1 2
+
+pattern bass_a unit 4 register 2:
+  rhythm "X . . . X . . ."
+  notes chord 0 0
+
+pattern bass_b unit 4 register 2:
+  rhythm "X . x . X . x ."
+  notes seq chord 0 interval 12 chord 0 interval 12
+
+pattern bass_c unit 4 register 2:
+  rhythm "X . . x x . X ."
+  notes seq chord 0 chord 2 interval -7 chord 0
+
+pattern kick unit 4 register 2:
+  rhythm "X x x x"
+  notes drum 0 0 0 0
+
+pattern motif unit 4 register 5:
+  rhythm dotted 0.25 0.125 0.125 0.5
+  notes scale 0 2 4 2
+
+place_range pad_pat spans section_a section_b section_c track pad velocity 45
+voice_leading pad on *
+register pad 57 79
+
+place_range bass_a spans section_a track bass register 2 velocity 90
+place_range bass_b spans section_b track bass register 2 velocity 100
+place_range bass_c spans section_c track bass register 2 velocity 95
+
+place_range kick spans section_a[1:] section_b section_c[1:4] track drums register 2 velocity 105
+place_range kick spans section_c[4:] track drums register 2 velocity 108
+
+place motif on section_a[0,2,4,6] track lead register 5 velocity 95
+place motif on section_b[1,3,5,7] track lead register 5 velocity 100
+place motif on section_c[0,4] track lead register 5 velocity 102
+
+envelope pad_sweep pad filter.cutoff exp 0 64 280 3500

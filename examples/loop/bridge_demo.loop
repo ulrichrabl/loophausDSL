@@ -1,0 +1,67 @@
+# bridge_demo.loop — DSL equivalent of src/examples/bridge_demo.ts
+@tempo 100
+@meter 4/4
+@swing 0.15
+
+key minor C# natural_minor
+key dorian C# dorian
+
+track drums percussion channel 10
+track bass instrument wobble_bass channel 2
+track pad instrument warm_pad channel 4
+track lead instrument supersaw_lead channel 5
+track stab instrument clavinet_stab channel 3
+
+progression verse key minor beats 4 start 0:
+  i VI VII i
+
+progression bridge key dorian beats 4 start 16:
+  i IV VII i
+
+section verse progression verse
+section bridge progression bridge
+
+pattern pad_pat unit 4 register 4:
+  rhythm chord
+  notes chord 0 1 2
+
+pattern kick unit 4 register 2:
+  rhythm "X x x x"
+  notes drum 0 0 0 0
+
+pattern hat unit 4 register 2:
+  rhythm "x X x X x X x X"
+  notes drum 6 6 6 6 6 6 6 6
+
+pattern snare unit 4 register 2:
+  rhythm ". x . x"
+  notes drum 2 2
+
+pattern bass_groove unit 4 register 2:
+  rhythm "X . x . X . x ."
+  notes seq chord 0 interval 12 chord 0 interval 12
+
+pattern lead_motif unit 4 register 5:
+  rhythm dotted 0.5 0.25 0.25
+  notes chord 0 2 1
+
+pattern stab_pat unit 4 register 4:
+  rhythm hits 0.375:0.1 0.875:0.1
+  notes chord 0 1 2
+
+place_range pad_pat spans verse bridge track pad velocity 58
+voice_leading pad on *
+register pad 57 79
+
+envelope pad_fade pad gain linear 0 8 0.05 0.5
+envelope filter_open pad filter.cutoff exp 0 24 400 3500
+
+sidechain trigger drums ducks bass pad amount 0.3 release 160
+
+place_range kick spans verse bridge track drums register 2 velocity 110
+place_range hat spans verse bridge track drums register 2 velocity 55
+place_range snare spans verse bridge track drums register 2 velocity 92
+place_range bass_groove spans verse bridge track bass register 2 velocity 98
+place_range lead_motif spans verse[2:] bridge track lead register 5 velocity 92
+place_range stab_pat spans bridge track stab velocity 88
+voice_leading stab on bridge

@@ -3,6 +3,9 @@
 A parametric music composition kernel. Six primitives, a solver, a synth engine,
 and a library of example pieces.
 
+**Not related to [vcz-Gray/loophaus](https://github.com/vcz-Gray/loophaus)** (AI coding loops).
+This project is a score graph (A) + instrument graph (B) probe for parametric music.
+
 ## Status
 
 This is the probe — a working prototype to test the parametric music thesis
@@ -14,14 +17,35 @@ the kernel from multiple angles.
 
 ```bash
 npm install
+npm test                                 # solver goldens + explain snapshots
 npx tsx src/run.ts                     # list available examples
-npx tsx src/run.ts halflight           # render one example
+npx tsx src/run.ts bridge_demo         # 8-bar A+B demo (all pitched = instrument graphs)
+npx tsx src/run.ts halflight           # render one example → ./outputs/
 npx tsx src/run.ts halflight --explain # also print structured analysis
-npx tsx src/run.ts all                 # render everything
-npx tsx src/play.ts                    # render the user playground
+npx tsx src/run.ts modulation_demo      # C minor → G minor key change
+npx tsx src/run_loop.ts examples/loop/modulation_demo.loop
 ```
 
-Each rendered WAV goes to `/mnt/user-data/outputs/<name>.wav`.
+Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
+
+## Testing
+
+| Command | What it checks |
+|---------|----------------|
+| `npm test` | Full suite + explain snapshots (~3s + WAV renders) |
+| `npm run test:unit` | Fast unit tests only (~1s, no WAV renders) |
+| `npm run test:integration` | WAV render smoke tests only |
+| `npm run intent:check` | Intent specs match graph structure |
+| `npm run explain:update` | Regenerate `snapshots/explain/*.txt` after intentional changes |
+| `npm run explain:check` | Verify explain output matches committed snapshots |
+| `npm run loop:run` | Compile/render a `.loop` file → WAV |
+| `npm run synth:sweep` | Render isolated instrument notes → `./outputs/synth_*.wav` |
+
+**`.loop` DSL:** [docs/dloop_syntax.md](docs/dloop_syntax.md) — golden-tested against core examples.
+
+**Collaboration loop:** [docs/collaboration_loop.md](docs/collaboration_loop.md)
+
+Each rendered WAV goes to `./outputs/<name>.wav` (or `$OUTPUT_DIR`).
 
 ## Kernel — six primitives (`src/core/types.ts`)
 
@@ -104,6 +128,9 @@ b.bindEnvelope({ envelope: fade, targetEntity: padTrack, targetParameter: "gain"
 
 // Sidechain
 b.sidechain({ trigger: drumTrack, ducks: [bassTrack, padTrack], amount: 0.35, releaseMs: 180 });
+
+// Key modulation (tonic change, not just mode shift)
+b.modulateWithPivot({ fromKey: keyCm, toKey: keyGm, atBeats: 16, method: "dominant", pivotDegree: "V" });
 ```
 
 ## File layout
@@ -126,10 +153,8 @@ src/
 
 ## Known gaps (next-round candidates)
 
-1. DSL parser — current GraphBuilder is verbose; textual DSL would compress dramatically
-2. Sub-bar timing addressing — placing events at specific beats without custom patterns
-3. Per-event velocity envelopes within an instance (build across N bars)
-4. Real key modulation (not just mode shifts on same tonic) with pivot chords
-5. More synthesis voices — current set covers French house/atmospheric only
-6. Browser version with live editing — kernel is platform-agnostic
-7. Audio-rate sidechain via AudioWorklet
+1. Per-event velocity envelopes within an instance (build across N bars) — `noteEnvelope` exists in TS API
+2. More synthesis voices — current set covers French house/atmospheric only
+3. Browser version with live editing — kernel is platform-agnostic
+4. Audio-rate sidechain via AudioWorklet
+5. Full `.loop` ports of remaining registry examples (`daft_punk`, `strata`, `helios`, …)

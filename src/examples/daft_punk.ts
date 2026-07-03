@@ -19,6 +19,7 @@
  */
 import { GraphBuilder } from "../core/graph.ts";
 import { pcFromName } from "../core/theory.ts";
+import { defineHouseInstruments } from "../instruments/house_stack.ts";
 import type { ScaleDegree } from "../core/types.ts";
 
 export function buildDaftPunk() {
@@ -32,13 +33,12 @@ export function buildDaftPunk() {
   // A natural minor
   const key = b.key(pcFromName("A"), "natural_minor");
 
-  // Tracks
-  // Note: channel 10 is the GM drum channel; program selects the kit.
-  const drumTrack = b.track("drums", 10, { program: 26, isPercussion: true });   // TR-808 kit
-  const bassTrack = b.track("bass",  2,  { program: 38 });   // Synth Bass 1
-  const stabTrack = b.track("stab",  3,  { program: 8  });   // Clavinet
-  const padTrack  = b.track("pad",   4,  { program: 91 });   // Pad 3 polysynth
-  const leadTrack = b.track("lead",  5,  { program: 82 });   // Lead 2 sawtooth
+  const synths = defineHouseInstruments(b);
+  const drumTrack = b.track("drums", 10, { isPercussion: true });
+  const bassTrack = b.track("bass",  2,  { instrument: synths.bass });
+  const stabTrack = b.track("stab",  3,  { instrument: synths.stab });
+  const padTrack  = b.track("pad",   4,  { instrument: synths.pad });
+  const leadTrack = b.track("lead",  5,  { instrument: synths.lead });
 
   // 16 bars of Am - F - C - G repeating
   const cycle: ScaleDegree[] = ["i", "VI", "III", "VII"];
@@ -235,5 +235,5 @@ export function buildDaftPunk() {
     });
   }
 
-  return b.graph;
+  return { graph: b.graph };
 }

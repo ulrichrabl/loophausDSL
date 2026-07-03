@@ -1,0 +1,35 @@
+# Piece overview
+
+Tempo: 95 BPM
+Meter: 4/4
+Key: C natural minor
+Length: 8 bars (32 beats)
+
+# Tracks (3)
+
+- keys (ch 1, program undefined)  — 12 events
+- bass (ch 2, program undefined)  — 32 events
+- lead (ch 3, program undefined)  — 32 events
+
+# Harmonic progression
+
+  bar 1        : i    → C   (C-D#-G)  [tonic]
+  bar 3        : VI   → G#  (G#-C-D#)  [submediant]
+  bar 5        : III  → D#  (D#-G-A#)  [mediant]
+  bar 7        : VII  → A#  (A#-D-F)  [subtonic]
+
+# Layers
+
+- lead     [chord-tone 0, chord-tone 1, chord-tone 2, chord-tone 1]
+           plays at bars 1, 3, 5
+- lead     [chord-tone 0, chord-tone 1, chord-tone 2, chord-tone 1] (invert)
+           plays at bars 7
+- bass     [chord-tone 0, chord-tone 2, chord-tone 0, chord-tone 2]
+           plays at bars 1, 3, 5, 7
+- keys     [chord-tone 0, chord-tone 1, chord-tone 2]
+           plays at bars 1, 3, 5, 7
+
+# Diagnostics
+
+- Total events: 76
+- Voice-leading motion: 23 semitones

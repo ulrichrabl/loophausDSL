@@ -18,6 +18,7 @@
  */
 import { GraphBuilder } from "../core/graph.ts";
 import { pcFromName } from "../core/theory.ts";
+import { defineWarmPad, defineWobbleBass } from "../instruments/library.ts";
 
 export function buildElectronicLoop() {
   const b = new GraphBuilder();
@@ -28,9 +29,12 @@ export function buildElectronicLoop() {
 
   const key = b.key(pcFromName("C"), "major");
 
+  const bassSynth = defineWobbleBass(b);
+  const padSynth = defineWarmPad(b);
+
   const drumTrack = b.track("drums", 10, { isPercussion: true });
-  const bassTrack = b.track("bass", 2, { program: 39 });   // synth bass
-  const padTrack  = b.track("pad",  3, { program: 89 });   // warm pad
+  const bassTrack = b.track("bass", 2, { instrument: bassSynth });
+  const padTrack  = b.track("pad",  3, { instrument: padSynth });
 
   // Harmony: vi IV I V, 1 bar = 4 beats each
   const h1 = b.harmonicSpan({ inKey: key, degree: "vi", startBeats: 0,  endBeats: 4  });
@@ -120,5 +124,5 @@ export function buildElectronicLoop() {
   });
   b.bindEnvelope({ envelope: sweep, targetEntity: padTrack, targetParameter: "filter.cutoff" });
 
-  return b.graph;
+  return { graph: b.graph };
 }

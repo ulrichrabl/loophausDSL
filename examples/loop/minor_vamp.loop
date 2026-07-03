@@ -1,0 +1,36 @@
+# minor_vamp.loop — DSL equivalent of src/examples/minor_vamp.ts
+@tempo 95
+@meter 4/4
+@key C natural_minor
+
+track keys instrument warm_pad channel 1
+track bass instrument wobble_bass channel 2
+track lead instrument supersaw_lead channel 3
+
+progression main beats 8:
+  i VI III VII
+
+pattern motif unit 4 register 5:
+  rhythm dotted 0.375 0.125 0.25 0.25
+  notes chord 0 1 2 1
+
+pattern motif_inv unit 4 register 5 transform invert:
+  rhythm dotted 0.375 0.125 0.25 0.25
+  notes chord 0 1 2 1
+
+place motif on main[0:3] track lead
+place motif_inv on main[3] track lead
+
+pattern bass_pulse unit 4 register 2:
+  rhythm quarters 4
+  notes chord 0 2 0 2
+
+place bass_pulse on main track bass register 2
+
+pattern triad unit 8 register 4:
+  rhythm chord
+  notes chord 0 1 2
+
+place triad on main track keys register 4
+voice_leading keys on main
+register keys 55 79

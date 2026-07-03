@@ -6,10 +6,10 @@
  * the music without needing audio. It's also a debugging tool — verify
  * that what the graph SAYS matches what you intended.
  */
-import type { Graph, Node, HarmonicSpan, MelodicPattern, RhythmicPattern, PatternInstance, SidechainRelationship, Envelope, EnvelopeBinding } from "./types.ts";
+import type { Graph, Node, HarmonicSpan, MelodicPattern, RhythmicPattern, PatternInstance, SidechainRelationship, Envelope, EnvelopeBinding, Modulation, KeyContext } from "./types.ts";
 import type { SolveResult } from "./solver.ts";
 import { lookup } from "./graph.ts";
-import { midiToName, NOTE_NAMES } from "./theory.ts";
+import { midiToName, NOTE_NAMES, keyLabel } from "./theory.ts";
 
 export function explain(g: Graph, r: SolveResult): string {
   const out: string[] = [];
@@ -29,7 +29,22 @@ export function explain(g: Graph, r: SolveResult): string {
     out.push(`Key: ${NOTE_NAMES[keys[0].tonic]} ${keys[0].mode.replace(/_/g, " ")}`);
   } else if (keys.length > 1) {
     out.push(`Keys (${keys.length}):`);
-    for (const k of keys) out.push(`  - ${NOTE_NAMES[k.tonic]} ${k.mode.replace(/_/g, " ")}`);
+    for (const k of keys) out.push(`  - ${keyLabel(k)}`);
+  }
+
+  // ----- Modulations -----
+  const mods = [...g.nodes.values()].filter(
+    n => n.kind === "relationship" && (n as any).type === "modulation"
+  ) as Modulation[];
+  if (mods.length > 0) {
+    out.push(`\n# Modulations (${mods.length})\n`);
+    for (const m of mods.sort((a, b) => a.atBeats - b.atBeats)) {
+      const fromKey = lookup<KeyContext>(g, m.fromKey);
+      const toKey = lookup<KeyContext>(g, m.toKey);
+      const bar = Math.floor(m.atBeats / meter.beatsPerBar) + 1;
+      const pivot = (m.pivotPcs ?? []).map(p => NOTE_NAMES[p]).join(", ") || "(none)";
+      out.push(`- Bar ${bar}: ${keyLabel(fromKey)} → ${keyLabel(toKey)} via ${m.method} (pivot: ${pivot})`);
+    }
   }
 
   // ----- Length -----
