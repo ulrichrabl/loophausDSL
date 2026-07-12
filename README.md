@@ -142,12 +142,34 @@ player.noteOff("keys", 64);     // envelopes release properly per voice
 Each track has its own bus (gain + optional shared effect chain) summed
 through a master limiter; per-voice effects (an instrument's own delay or
 reverb) ring out naturally after note-off. Polyphony is enforced with
-oldest-voice stealing. Try it:
+oldest-voice stealing. Percussion works too: `addDrumTrack()` gives a bus
+whose noteOns trigger the procedural drum voices (kick/snare/hats/crash/clap
+keyed by MIDI note).
+
+Whole arrangements play live as well. `createLiveSet` solves a composed
+graph, builds one bus per track, and returns a `LiveTransport` that streams
+the solver's events into the player with lookahead scheduling — start,
+stop, and loop a full piece in real time:
+
+```typescript
+import { createLiveSet } from "loophaus";
+
+const { player, transport } = createLiveSet(audioCtx, graph, { loop: true });
+transport.play();            // drums + synths, looping, sample-accurate
+// ... later
+transport.stop();            // releases everything, effects ring out
+```
+
+The same solver events feed both the offline WAV renderer and the live
+transport, so what you bounce is what you hear. Try it:
 
 - **Browser keyboard**: `npm run build && npx serve .` then open
   `examples/live/index.html` — computer-keyboard piano across 5 tracks.
 - **Node**: `npx tsx src/demos/live_demo.ts` (real-time audio device) or
   `--offline` to render the same noteOn/noteOff performance to WAV.
+- **Full piece, live**: `npx tsx src/demos/live_transport_demo.ts` loops
+  the electronic_loop example (drums + bass + pad) in real time;
+  `--offline` bounces two transport loops to WAV.
 
 ## Samples
 
@@ -282,7 +304,7 @@ src/
 
 1. Per-event velocity envelopes within an instance (build across N bars) — `noteEnvelope` exists in TS API
 2. Drum synthesis as declarative instrument graphs (currently hardcoded voices keyed to MIDI note numbers)
-3. Live *arrangement* playback — lookahead scheduler feeding solved events into `LivePlayer` (live instrument playing works; whole-piece live transport doesn't yet)
+3. Live transport gaps: track-gain envelopes, sidechain ducking, and tempo changes mid-playback are offline-renderer-only for now
 4. Audio-rate sidechain via AudioWorklet; live sidechain via envelope follower
 5. Full `.loop` ports of remaining registry examples (`daft_punk`, `strata`, `helios`, …)
 6. `.loop` syntax for sampler instruments and vocoder effect

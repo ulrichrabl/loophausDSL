@@ -24,6 +24,7 @@
 import type { EffectNode, Instrument, SampleBank } from "../core/audio_types.ts";
 import { midiToHz } from "../core/theory.ts";
 import { buildEffectBus, startLiveVoice, type LiveVoice } from "../midi/audio_renderer.ts";
+import { soundForDrumNote, triggerDrumVoice } from "../midi/drums.ts";
 
 export interface LivePlayerOptions {
   samples?: SampleBank;
@@ -46,7 +47,8 @@ interface ActiveVoice {
 }
 
 interface Track {
-  instrument: Instrument;
+  /** Undefined for drum tracks — hits are procedural, keyed by MIDI note. */
+  instrument?: Instrument;
   input: any;                // where voices connect
   gainNode: any;
   polyphony: number;
@@ -54,7 +56,7 @@ interface Track {
 }
 
 export class LivePlayer {
-  private readonly ctx: any;
+  readonly ctx: any;
   private readonly samples?: SampleBank;
   private readonly tracks = new Map<string, Track>();
   readonly master: any;
@@ -79,6 +81,19 @@ export class LivePlayer {
   }
 
   addTrack(name: string, instrument: Instrument, opts: LiveTrackOptions = {}): void {
+    this.addBus(name, instrument, opts);
+  }
+
+  /**
+   * Percussion track: noteOn triggers self-terminating procedural drum
+   * voices keyed by MIDI note (36 kick, 38 snare, 42/46 hats, 49 crash,
+   * 39 clap); noteOff is a no-op.
+   */
+  addDrumTrack(name: string, opts: Omit<LiveTrackOptions, "polyphony"> = {}): void {
+    this.addBus(name, undefined, opts);
+  }
+
+  private addBus(name: string, instrument: Instrument | undefined, opts: LiveTrackOptions): void {
     if (this.tracks.has(name)) throw new Error(`Track "${name}" already exists`);
     const gainNode = this.ctx.createGain();
     gainNode.gain.value = opts.gain ?? 0.8;
@@ -95,7 +110,7 @@ export class LivePlayer {
       instrument,
       input,
       gainNode,
-      polyphony: opts.polyphony ?? instrument.polyphony ?? 8,
+      polyphony: opts.polyphony ?? instrument?.polyphony ?? 8,
       voices: [],
     });
   }
@@ -103,6 +118,11 @@ export class LivePlayer {
   /** Start a note. Steals the oldest voice when the track is at polyphony. */
   noteOn(track: string, midi: number, velocity = 0.8, when?: number): void {
     const t = this.getTrack(track);
+    if (!t.instrument) {
+      const at = when ?? this.ctx.currentTime;
+      triggerDrumVoice(this.ctx, soundForDrumNote(midi), midiToHz(midi), at, 0.5, velocity, t.input);
+      return;
+    }
     t.voices = t.voices.filter(v => v.voice.active);
     while (t.voices.length >= t.polyphony) {
       const oldest = t.voices.shift()!;

@@ -70,6 +70,17 @@ export {
   type LiveTrackOptions,
 } from "./live/player.ts";
 
+// Live transport — play a solved arrangement in real time, looping
+export {
+  LiveTransport,
+  type LiveTransportOptions,
+  type TransportNote,
+} from "./live/transport.ts";
+export { createLiveSet, type LiveSet, type LiveSetOptions } from "./live/set.ts";
+
+// Procedural drum voices (also used by the live engine's drum tracks)
+export { soundForDrumNote, triggerDrumVoice, type DrumSound } from "./midi/drums.ts";
+
 // .loop DSL
 export { parseLoop, ParseError } from "./dloop/parse.ts";
 export { compileLoop, compileLoopFile } from "./dloop/compile.ts";
