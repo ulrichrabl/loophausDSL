@@ -6,7 +6,7 @@
  * Requires node-web-audio-api (native module) and filesystem access.
  * Browser consumers should import from the package root instead.
  */
-export { renderWebAudio } from "./midi/web_audio.ts";
+export { renderWebAudio, type RenderOptions } from "./midi/web_audio.ts";
 export { renderMidi } from "./midi/render.ts";
 export {
   renderInstrumentNote,
@@ -14,3 +14,4 @@ export {
   midiToHz,
   type RenderNoteOptions,
 } from "./midi/render_instrument.ts";
+export { loadSample, loadSamplesFromDir } from "./midi/samples_node.ts";

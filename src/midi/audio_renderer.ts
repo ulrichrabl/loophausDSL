@@ -14,7 +14,7 @@
  *                                through a gain (the amount) to the AudioParam
  */
 import type { OfflineAudioContext as OACType } from "node-web-audio-api";
-import type { Instrument, AudioNode, AudioParam, Modulation } from "../core/audio_types.ts";
+import type { Instrument, AudioNode, AudioParam, Modulation, SampleBank } from "../core/audio_types.ts";
 
 interface VoiceContext {
   ctx: OACType;
@@ -25,6 +25,8 @@ interface VoiceContext {
   outputDest: any;          // AudioNode to connect the voice's output to (track bus)
   /** Source run-out after gate-off. Computed from envelope releases if unset. */
   tailSec?: number;
+  /** Host-provided sample buffers, required if the instrument has sampler nodes. */
+  samples?: SampleBank;
 }
 
 interface BuiltNode {
@@ -67,13 +69,19 @@ function releaseTailSec(inst: Instrument): number {
 
 /**
  * Total tail an instrument needs after note-off: envelope releases plus
- * ring-out of time-based effects (delay feedback, reverb decay). Used to
- * size pre-render buffers so echoes and reverb tails aren't truncated.
+ * ring-out of time-based effects (delay feedback, reverb decay), plus
+ * one-shot sample run-out when a SampleBank is provided. Used to size
+ * pre-render buffers so nothing gets truncated.
  */
-export function instrumentTailSec(inst: Instrument, minTailSec = 1.5): number {
+export function instrumentTailSec(inst: Instrument, minTailSec = 1.5, samples?: SampleBank): number {
   let tail = Math.max(minTailSec, releaseTailSec(inst));
   for (const node of Object.values(inst.audioNodes)) {
     const n = node as AudioNode;
+    if (n.type === "sampler" && !n.loop && samples) {
+      const buf = samples[n.sample] as { duration?: number } | undefined;
+      if (buf?.duration) tail = Math.max(tail, buf.duration + 0.1);
+      continue;
+    }
     if (n.type !== "effect") continue;
     const p = (name: string, dflt: number): number => {
       const v = n.params?.[name];
@@ -239,6 +247,31 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
       setParam(ctx, osc.frequency, node.freq, voice, built, /*default*/ 440);
       if (node.detune !== undefined) setParam(ctx, osc.detune, node.detune, voice, built, 0);
       return { audioOut: osc, params: { frequency: osc.frequency, detune: osc.detune } };
+    }
+    case "sampler": {
+      const buf = voice.samples?.[node.sample];
+      if (!buf) {
+        throw new Error(
+          `sample "${node.sample}" not found — pass a SampleBank containing it ` +
+          `(browser: decode with your AudioContext; Node: loadSampleWav/loadSamplesFromDir from loophaus/node)`,
+        );
+      }
+      const src = ctx.createBufferSource() as any;
+      src.buffer = buf;
+      if (node.pitched !== false) {
+        const rootHz = 440 * Math.pow(2, ((node.rootMidi ?? 60) - 69) / 12);
+        src.playbackRate.value = voice.freqHz / rootHz;
+      }
+      if (node.loop) {
+        src.loop = true;
+        if (node.loopStart !== undefined) src.loopStart = node.loopStart;
+        if (node.loopEnd !== undefined) src.loopEnd = node.loopEnd;
+      }
+      // Scheduled here, not in scheduleNode: one-shots must play to the end
+      // of the sample (crash, riser), so only looped samples get a stop.
+      src.start(voice.startTime);
+      if (node.loop) src.stop(voice.endTime + (voice.tailSec ?? TAIL_SEC));
+      return { audioOut: src, params: { playbackRate: src.playbackRate } };
     }
     case "noise": {
       const sr = ctx.sampleRate;

@@ -7,6 +7,7 @@
 import { OfflineAudioContext } from "node-web-audio-api";
 import * as fs from "fs";
 import type { Graph } from "../core/types.ts";
+import type { SampleBank } from "../core/audio_types.ts";
 import type { SolveResult } from "../core/solver.ts";
 import { lookup } from "../core/graph.ts";
 import { instrumentUsesPort, renderInstrumentVoice } from "./audio_renderer.ts";
@@ -38,7 +39,8 @@ function soundForDrumNote(midi: number): DrumSound {
  * The duration is bucketed so we don't make a unique buffer per fractional dur.
  */
 async function prerenderInstrumentBuffer(
-  inst: any, midi: number, durSec: number, sr: number, velocity = 1.0
+  inst: any, midi: number, durSec: number, sr: number, velocity = 1.0,
+  samples?: SampleBank,
 ): Promise<any> {
   try {
     return await renderInstrumentNote(inst, {
@@ -46,10 +48,12 @@ async function prerenderInstrumentBuffer(
       durationSec: durSec,
       sampleRate: sr,
       velocity,
+      samples,
       // tailSec omitted: renderInstrumentNote sizes the tail from the
       // instrument's effects so delay/reverb ring-out isn't truncated.
     });
-  } catch {
+  } catch (e: any) {
+    console.error(`  Instrument ${inst.name} prerender failed: ${e?.message ?? e}`);
     const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: sr });
     return await ctx.startRendering();
   }
@@ -103,7 +107,12 @@ async function prerenderDrum(sound: DrumSound, midi: number, sr: number): Promis
   return await ctx.startRendering();
 }
 
-export async function renderWebAudio(g: Graph, result: SolveResult, outputPath: string) {
+export interface RenderOptions {
+  /** Sample buffers for instruments with sampler nodes (see loophaus/node loaders). */
+  samples?: SampleBank;
+}
+
+export async function renderWebAudio(g: Graph, result: SolveResult, outputPath: string, opts: RenderOptions = {}) {
   const transport = lookup<any>(g, g.transport);
   const tempo = lookup<any>(g, transport.tempo);
   const bpm: number = tempo.bpm;
@@ -178,7 +187,7 @@ export async function renderWebAudio(g: Graph, result: SolveResult, outputPath: 
     const t0 = Date.now();
     const { buffer, envelopesApplied, perNoteEnvelopesApplied } = await renderOneTrack(
       g, track, events, kickTimesSec, trackSidechainConfig.get(track.id),
-      lengthSec, sr, beatsToSec
+      lengthSec, sr, beatsToSec, opts.samples
     );
     totalEnvelopesApplied += envelopesApplied;
     totalPerNoteEnvelopesApplied += perNoteEnvelopesApplied;
@@ -230,6 +239,7 @@ async function renderOneTrack(
   lengthSec: number,
   sr: number,
   beatsToSec: (b: number) => number,
+  samples?: SampleBank,
 ): Promise<{ buffer: any; envelopesApplied: number; perNoteEnvelopesApplied: number }> {
   const totalSamples = Math.ceil(sr * lengthSec);
   const ctx = new OfflineAudioContext({
@@ -375,7 +385,7 @@ async function renderOneTrack(
       const midi = parseInt(midiStr, 10);
       const durSec = parseFloat(durStr);
       const vel = parseFloat(velStr);
-      instrumentBufferCache.set(key, await prerenderInstrumentBuffer(inst, midi, durSec, sr, vel));
+      instrumentBufferCache.set(key, await prerenderInstrumentBuffer(inst, midi, durSec, sr, vel, samples));
     }
   }
 
@@ -400,6 +410,7 @@ async function renderOneTrack(
             freqHz,
             velocity: vel,
             outputDest: volumeBus,
+            samples,
           });
           if (ev.fromInstance) {
             const list = instanceNoteGains.get(ev.fromInstance) ?? [];

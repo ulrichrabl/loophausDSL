@@ -29,6 +29,8 @@ export type {
   AudioNode,
   OscillatorNode,
   NoiseNode,
+  SamplerNode,
+  SampleBank,
   FilterNode,
   AmpNode,
   MixerNode,
@@ -48,6 +50,7 @@ export {
   type InstrumentName,
   type BuiltInstrument,
 } from "./instruments/registry.ts";
+export { defineSampler, type SamplerInstrumentOptions } from "./instruments/library.ts";
 
 // Per-voice synthesis. Context-agnostic: pass any (Offline)AudioContext,
 // browser or Node — only type imports touch node-web-audio-api.

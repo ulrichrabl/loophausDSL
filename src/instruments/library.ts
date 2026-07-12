@@ -541,6 +541,50 @@ export function defineGlassKeys(b: GraphBuilder) {
   return b.defineInstrument({ name: "glass_keys", polyphony: 8, nodes, output: "verb" });
 }
 
+/**
+ * Sampler instrument factory — wraps a named sample in a playable voice:
+ * repitched from rootMidi, gated by an ADSR, optionally filtered.
+ *
+ * Sample *bytes* come from the host at render time (SampleBank); the graph
+ * only declares which sample and how to play it, so a .loop piece using a
+ * sampler stays portable across DAW and Node renders.
+ */
+export interface SamplerInstrumentOptions {
+  name: string;
+  sample: string;            // SampleBank key
+  rootMidi?: number;         // default 60 (C4)
+  pitched?: boolean;         // default true
+  loop?: boolean;            // loop while the note is held (default false)
+  gain?: number;             // output level (default 0.8)
+  adsr?: { a: number; d: number; s: number; r: number; curve?: "linear" | "exp" };
+  cutoff?: number;           // optional lowpass, e.g. to tame bright samples
+  polyphony?: number;
+}
+
+export function defineSampler(b: GraphBuilder, opts: SamplerInstrumentOptions) {
+  const env = opts.adsr ?? { a: 0.003, d: 0.05, s: 1, r: 0.15 };
+  const nodes: Record<string, AudioNode> = {
+    smp: { kind: "audio_node", type: "sampler", sample: opts.sample,
+           rootMidi: opts.rootMidi, pitched: opts.pitched, loop: opts.loop },
+    ampEnv: { kind: "audio_node", type: "env_gen", envType: "adsr",
+              a: env.a, d: env.d, s: env.s, r: env.r, curve: env.curve },
+  };
+  let ampInput = "smp";
+  if (opts.cutoff !== undefined) {
+    nodes.filter = { kind: "audio_node", type: "filter", filterType: "lowpass",
+                     input: "smp", cutoff: opts.cutoff, q: 0.7 };
+    ampInput = "filter";
+  }
+  nodes.amp = { kind: "audio_node", type: "amp", input: ampInput,
+                gain: { base: 0, mod: [{ source: "ampEnv", amount: opts.gain ?? 0.8 }] } };
+  return b.defineInstrument({
+    name: opts.name,
+    polyphony: opts.polyphony ?? 8,
+    nodes,
+    output: "amp",
+  });
+}
+
 export function defineClavinetStab(b: GraphBuilder) {
   const nodes: Record<string, AudioNode> = {
     sq1: { kind: "audio_node", type: "osc", wave: "square", freq: "$freq", detune: -3 },

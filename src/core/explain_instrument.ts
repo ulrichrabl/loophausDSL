@@ -49,6 +49,10 @@ function describeNode(node: AudioNode): string {
         : `osc ${node.wave}, freq=${fmtParam(node.freq)}`;
     case "noise":
       return `noise ${node.color ?? "white"}`;
+    case "sampler":
+      return `sampler "${node.sample}" root=${node.rootMidi ?? 60}` +
+        (node.pitched === false ? " unpitched" : "") +
+        (node.loop ? " looped" : " one-shot");
     case "filter":
       return `${node.filterType} ← ${node.input}, cutoff=${fmtParam(node.cutoff)}`;
     case "amp":

@@ -115,6 +115,31 @@ keytracking. Velocity-timbre instruments render correctly in full mixes via
 velocity-bucketed voice caching. Audition everything:
 `npm run synth:sweep -- all`.
 
+## Samples
+
+Sample *semantics* live in the kernel; sample *bytes* come from the host.
+A `sampler` node names a sample, its root pitch, and loop behavior — the
+graph stays declarative and portable. At render time the host passes a
+`SampleBank` (name → AudioBuffer):
+
+```typescript
+import { GraphBuilder, defineSampler } from "loophaus";
+import { loadSamplesFromDir, renderWebAudio } from "loophaus/node";
+
+const samples = await loadSamplesFromDir("./samples");   // kick.wav → "kick"
+const inst = defineSampler(b, {
+  name: "piano", sample: "piano_c4", rootMidi: 60,       // repitched per note
+  adsr: { a: 0.002, d: 0.1, s: 0.8, r: 0.3 },
+});
+await renderWebAudio(graph, result, "out.wav", { samples });
+```
+
+In a browser DAW, decode with your own `AudioContext` and pass the same bank
+shape. One-shots (crashes, risers) play to the end of the sample past
+note-off; `loop: true` sustains while the note is held. Try
+`npx tsx src/demos/sampler_demo.ts` — it synthesizes its own pluck sample,
+so no assets are needed.
+
 ## Kernel — six primitives (`src/core/types.ts`)
 
 - **Event** — discrete temporal happening (position + duration + optional pitch + track)

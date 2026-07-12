@@ -2,7 +2,7 @@
  * Render a single instrument voice offline — no score graph required.
  */
 import { OfflineAudioContext } from "node-web-audio-api";
-import type { Instrument } from "../core/audio_types.ts";
+import type { Instrument, SampleBank } from "../core/audio_types.ts";
 import { instrumentTailSec, renderInstrumentVoice } from "./audio_renderer.ts";
 
 export function midiToHz(midi: number): number {
@@ -15,6 +15,8 @@ export interface RenderNoteOptions {
   velocity?: number;
   sampleRate?: number;
   tailSec?: number;
+  /** Sample buffers for instruments with sampler nodes. */
+  samples?: SampleBank;
 }
 
 export async function renderInstrumentNote(
@@ -22,9 +24,9 @@ export async function renderInstrumentNote(
   opts: RenderNoteOptions,
 ): Promise<AudioBuffer> {
   const sr = opts.sampleRate ?? 44100;
-  // Effect ring-out (delay feedback, reverb decay) can far exceed the 1.5s
-  // default; size the buffer from the instrument's declared effects.
-  const tailSec = instrumentTailSec(inst, opts.tailSec ?? 1.5);
+  // Effect ring-out (delay feedback, reverb decay) and one-shot samples can
+  // far exceed the 1.5s default; size the buffer from the instrument.
+  const tailSec = instrumentTailSec(inst, opts.tailSec ?? 1.5, opts.samples);
   const durSec = opts.durationSec;
   const ctx = new OfflineAudioContext({
     numberOfChannels: 2,
@@ -39,6 +41,7 @@ export async function renderInstrumentNote(
     freqHz: midiToHz(opts.midi),
     velocity: opts.velocity ?? 1.0,
     outputDest: ctx.destination as Parameters<typeof renderInstrumentVoice>[1]["outputDest"],
+    samples: opts.samples,
   });
 
   return (await ctx.startRendering()) as AudioBuffer;

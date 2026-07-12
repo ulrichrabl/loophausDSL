@@ -49,6 +49,12 @@ The minimum useful set. ~9 node kinds.
   An oscillator's freq param accepts audio-rate modulation from another node,
   which is 2-operator FM (see `fm_epiano`, `fm_bell`).
 - **Noise** — broadband noise. Params: color (white/pink). Output: audio.
+- **Sampler** — plays a named sample from a host-provided SampleBank.
+  Params: sample (bank key), rootMidi, pitched (repitch via playbackRate),
+  loop/loopStart/loopEnd. One-shots play to the end of the sample; looped
+  samples gate with the note. The kernel owns sample *semantics*; the host
+  owns the *bytes* (browser: decode with its AudioContext; Node:
+  `loadSample`/`loadSamplesFromDir` from `loophaus/node`).
 
 ### Processors
 - **Filter** — biquad. Params: type (lp/hp/bp/notch), cutoff, q. In: audio.

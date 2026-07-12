@@ -43,6 +43,7 @@ export interface Modulation {
 export type AudioNode =
   | OscillatorNode
   | NoiseNode
+  | SamplerNode
   | FilterNode
   | AmpNode
   | MixerNode
@@ -50,6 +51,33 @@ export type AudioNode =
   | LFONode
   | MathNode
   | EffectNode;
+
+/**
+ * Sample assets, injected by the host environment. The kernel owns sample
+ * *semantics* (which sample a voice plays, root pitch, looping, envelopes,
+ * effects); the host owns the *bytes* — a DAW decodes with its own
+ * AudioContext, Node uses the loaders in "loophaus/node". Values are
+ * AudioBuffers (typed loosely so the core stays platform-agnostic).
+ */
+export type SampleBank = Record<string, unknown>;
+
+/**
+ * Sample playback voice. The buffer is looked up by name in the SampleBank
+ * passed to the renderer. Playback rate follows $freq relative to rootMidi
+ * when pitched (a sample recorded at C4 plays 2× at C5). One-shots
+ * (loop: false) always play to the end of the sample — percussion, risers,
+ * textures; looped samples gate with the note.
+ */
+export interface SamplerNode {
+  kind: "audio_node";
+  type: "sampler";
+  sample: string;            // key into the SampleBank
+  rootMidi?: number;         // pitch the sample was recorded at (default 60 = C4)
+  pitched?: boolean;         // repitch via playbackRate to match $freq (default true)
+  loop?: boolean;            // loop for the note duration (default false = one-shot)
+  loopStart?: number;        // seconds (loop: true only)
+  loopEnd?: number;          // seconds
+}
 
 export interface OscillatorNode {
   kind: "audio_node";
