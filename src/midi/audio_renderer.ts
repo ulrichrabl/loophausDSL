@@ -95,6 +95,29 @@ export function instrumentTailSec(inst: Instrument, minTailSec = 1.5): number {
   return Math.min(tail, 10);
 }
 
+/**
+ * Whether any modulation route in the instrument reads the given port
+ * (e.g. "$vel"). Used by the track renderer to decide if pre-rendered
+ * voice buffers must be bucketed by velocity to preserve timbre.
+ */
+export function instrumentUsesPort(inst: Instrument, port: string): boolean {
+  const paramUses = (p: unknown): boolean =>
+    typeof p === "object" && p !== null && Array.isArray((p as { mod?: Modulation[] }).mod) &&
+    ((p as { mod: Modulation[] }).mod).some(m => m.source === port);
+  for (const node of Object.values(inst.audioNodes)) {
+    for (const value of Object.values(node as unknown as Record<string, unknown>)) {
+      if (paramUses(value)) return true;
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        // effect params: Record<string, AudioParam>
+        for (const inner of Object.values(value as Record<string, unknown>)) {
+          if (paramUses(inner)) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 export function renderInstrumentVoice(inst: Instrument, voice: VoiceContext): VoiceHandle {
   const { ctx } = voice;
   voice.tailSec = voice.tailSec ?? releaseTailSec(inst);
@@ -203,7 +226,16 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
   switch (node.type) {
     case "osc": {
       const osc = ctx.createOscillator() as any;
-      osc.type = node.wave === "saw" ? "sawtooth" : node.wave;
+      if (node.wave === "custom") {
+        const harmonics = node.harmonics?.length ? node.harmonics : [1];
+        const n = harmonics.length + 1;
+        const real = new Float32Array(n);
+        const imag = new Float32Array(n);
+        for (let i = 0; i < harmonics.length; i++) imag[i + 1] = harmonics[i];
+        osc.setPeriodicWave(ctx.createPeriodicWave(real, imag));
+      } else {
+        osc.type = node.wave === "saw" ? "sawtooth" : node.wave;
+      }
       setParam(ctx, osc.frequency, node.freq, voice, built, /*default*/ 440);
       if (node.detune !== undefined) setParam(ctx, osc.detune, node.detune, voice, built, 0);
       return { audioOut: osc, params: { frequency: osc.frequency, detune: osc.detune } };
@@ -213,7 +245,19 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
       const lenSec = (voice.endTime - voice.startTime) + (voice.tailSec ?? TAIL_SEC) + 0.05;
       const buf = ctx.createBuffer(1, Math.ceil(sr * Math.max(lenSec, 0.1)), sr);
       const data = buf.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      if (node.color === "pink") {
+        // Paul Kellett's economy pink-noise filter (-3 dB/octave).
+        let b0 = 0, b1 = 0, b2 = 0;
+        for (let i = 0; i < data.length; i++) {
+          const white = Math.random() * 2 - 1;
+          b0 = 0.99765 * b0 + white * 0.0990460;
+          b1 = 0.96300 * b1 + white * 0.2965164;
+          b2 = 0.57000 * b2 + white * 1.0526913;
+          data[i] = (b0 + b1 + b2 + white * 0.1848) * 0.25;
+        }
+      } else {
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      }
       const src = ctx.createBufferSource() as any;
       src.buffer = buf;
       return { audioOut: src };
@@ -242,21 +286,29 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
       const t0 = voice.startTime;
       const tGateOff = voice.endTime;
       const a = node.a, d = node.d ?? 0, s = node.s ?? 0, r = node.r ?? 0;
-      // Attack
-      cs.offset.setValueAtTime(0, t0);
+      const exp = node.curve === "exp";
+      // Exponential ramps can't reach 0 — decay toward a floor, then snap.
+      const FLOOR = 0.001;
+      const rampDown = (target: number, t: number) => {
+        if (exp) {
+          cs.offset.exponentialRampToValueAtTime(Math.max(FLOOR, target), t);
+          if (target < FLOOR) cs.offset.setValueAtTime(0, t);
+        } else {
+          cs.offset.linearRampToValueAtTime(target, t);
+        }
+      };
+      // Attack — always linear (exp can't start from zero)
+      cs.offset.setValueAtTime(exp ? FLOOR : 0, t0);
       cs.offset.linearRampToValueAtTime(1, t0 + a);
       if (node.envType === "adsr") {
-        // Decay to sustain
-        cs.offset.linearRampToValueAtTime(s, t0 + a + d);
-        cs.offset.setValueAtTime(s, tGateOff);
-        // Release
-        cs.offset.linearRampToValueAtTime(0, tGateOff + r);
+        rampDown(s, t0 + a + d);
+        cs.offset.setValueAtTime(Math.max(exp ? FLOOR : 0, s), tGateOff);
+        rampDown(0, tGateOff + r);
       } else if (node.envType === "ad") {
-        // Attack-decay (no sustain phase, decays to 0)
-        cs.offset.linearRampToValueAtTime(0, t0 + a + d);
+        rampDown(0, t0 + a + d);
       } else if (node.envType === "ar") {
         cs.offset.setValueAtTime(1, tGateOff);
-        cs.offset.linearRampToValueAtTime(0, tGateOff + r);
+        rampDown(0, tGateOff + r);
       }
       return { audioOut: cs, controlOut: cs };
     }
@@ -271,10 +323,53 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
       return { audioOut: g, controlOut: g, params: { frequency: osc.frequency, gain: g.gain }, sources: [osc] };
     }
     case "math": {
-      // For simple compile-time math (e.g. freq / 2), evaluate statically.
-      // Audio-rate math is not handled here — would need ScriptProcessor or WaveShaper.
       const a = resolveStatic(node.a, voice);
       const b = resolveStatic(node.b, voice);
+      const aRef = typeof node.a === "string" && !node.a.startsWith("$") ? built[node.a] : undefined;
+      const bRef = typeof node.b === "string" && !node.b.startsWith("$") ? built[node.b] : undefined;
+
+      // Audio-rate path: add/sub/mul with at least one node-ref operand.
+      // mul with two signals is ring modulation (signal on a gain param).
+      if ((aRef || bRef) && (node.op === "add" || node.op === "sub" || node.op === "mul")) {
+        const out = ctx.createGain() as any;
+        if (node.op === "mul") {
+          if (aRef && bRef) {
+            out.gain.value = 0;
+            aRef.audioOut.connect(out);
+            bRef.audioOut.connect(out.gain);
+          } else {
+            // signal × constant
+            out.gain.value = (aRef ? b : a) ?? 1;
+            (aRef ?? bRef)!.audioOut.connect(out);
+          }
+        } else {
+          out.gain.value = 1;
+          const wireOperand = (ref: BuiltNode | undefined, val: number | undefined, negate: boolean) => {
+            let src: any;
+            if (ref) {
+              src = ref.audioOut;
+            } else {
+              const cs = ctx.createConstantSource() as any;
+              cs.offset.value = val ?? 0;
+              cs.start(voice.startTime);
+              src = cs;
+            }
+            if (negate) {
+              const inv = ctx.createGain() as any;
+              inv.gain.value = -1;
+              src.connect(inv);
+              inv.connect(out);
+            } else {
+              src.connect(out);
+            }
+          };
+          wireOperand(aRef, a, false);
+          wireOperand(bRef, b, node.op === "sub");
+        }
+        return { audioOut: out, controlOut: out };
+      }
+
+      // Static path: evaluate once per voice.
       const off = resolveStatic(node.offset, voice) ?? 0;
       let result: number;
       switch (node.op) {
@@ -501,10 +596,20 @@ function wireMods(ctx: OACType, node: AudioNode, b: BuiltNode, voice: VoiceConte
       }
       return;
     }
-    // Modulation matrix: connect each source through a gain node
+    // Modulation matrix: port sources apply statically; node sources
+    // connect at audio rate through a gain (the amount).
     if (p.mod) {
       for (const m of p.mod) {
-        if (m.source.startsWith("$")) continue;  // port mods not yet implemented as audio-rate
+        if (m.source.startsWith("$")) {
+          // Per-voice static contribution: velocity → brightness, freq →
+          // keytracking. $gate contributes its on-value (1).
+          const portVal =
+            m.source === "$vel"  ? voice.velocity :
+            m.source === "$freq" ? voice.freqHz :
+            m.source === "$gate" ? 1 : 0;
+          paramTarget.value = paramTarget.value + m.amount * portVal;
+          continue;
+        }
         const src = built[m.source];
         if (!src?.audioOut) continue;
         const g = ctx.createGain() as any;

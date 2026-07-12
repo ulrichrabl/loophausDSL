@@ -95,6 +95,26 @@ Time-based effects automatically extend the voice's render tail
 (`instrumentTailSec`) so delay feedback and reverb decay ring out instead of
 being truncated. See `examples/loop/effects_demo.loop` for all of them in a mix.
 
+## Instrument palette (`src/instruments/library.ts`)
+
+17 instruments across families, all declarative audio graphs:
+
+| Family | Instruments | Techniques |
+|--------|-------------|------------|
+| Bass | `wobble_bass`, `pressed_bass`, `acid_bass` | sub-osc, drive+compressor, 303 accent via `$vel`→cutoff |
+| Leads | `supersaw_lead`, `broken_signal_lead`, `hoover_lead` | detune stacks, distortion, rave chorus |
+| Pads/strings | `warm_pad`, `shimmer_pad`, `string_machine` | slow envelopes, chorus→reverb, ensemble chorus |
+| Keys | `fm_epiano`, `glass_keys`, `drawbar_organ`, `clavinet_stab` | 2-op FM, custom PeriodicWave spectra, exp decay |
+| Bells/plucks | `fm_bell`, `echo_pluck`, `felt_synth`, `soft_brass` | inharmonic FM, feedback delay, keytracked filter |
+
+Synthesis features: custom additive waveforms (`wave: "custom"` + `harmonics`),
+2-operator FM (audio-rate signal into `osc.freq`), exponential envelope curves,
+pink noise, ring modulation (audio-rate `math mul`), and port modulation —
+`$vel`/`$freq` in any mod matrix for velocity-sensitive brightness and
+keytracking. Velocity-timbre instruments render correctly in full mixes via
+velocity-bucketed voice caching. Audition everything:
+`npm run synth:sweep -- all`.
+
 ## Kernel — six primitives (`src/core/types.ts`)
 
 - **Event** — discrete temporal happening (position + duration + optional pitch + track)
@@ -202,7 +222,7 @@ src/
 ## Known gaps (next-round candidates)
 
 1. Per-event velocity envelopes within an instance (build across N bars) — `noteEnvelope` exists in TS API
-2. More synthesis voices — current set covers French house/atmospheric plus effect showcases (`echo_pluck`, `shimmer_pad`, `pressed_bass`)
+2. Drum synthesis as declarative instrument graphs (currently hardcoded voices keyed to MIDI note numbers)
 3. Browser version with live editing — kernel is platform-agnostic
 4. Audio-rate sidechain via AudioWorklet
 5. Full `.loop` ports of remaining registry examples (`daft_punk`, `strata`, `helios`, …)

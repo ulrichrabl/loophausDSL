@@ -316,6 +316,231 @@ export function definePressedBass(b: GraphBuilder) {
   });
 }
 
+/**
+ * FM E-Piano — two-operator FM, DX7-style. The modulator runs at 1:1 with
+ * the carrier; its envelope decays faster than the amp so notes start
+ * bright and mellow out. A 14th-partial "tine" adds the attack ping.
+ */
+export function defineFmEpiano(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    modOsc: { kind: "audio_node", type: "osc", wave: "sine", freq: "$freq" },
+    modEnv: { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.002, d: 0.5, curve: "exp" },
+    modAmp: { kind: "audio_node", type: "amp", input: "modOsc",
+              gain: { base: 0, mod: [{ source: "modEnv", amount: 1 }] } },
+    // Frequency deviation = index × fundamental, so the modulation index
+    // (brightness) is constant across the keyboard. $freq amount 4 = index 4
+    // at the attack peak, decaying with modEnv to a mellow sustain.
+    fmDepth: { kind: "audio_node", type: "amp", input: "modAmp",
+               gain: { base: 0, mod: [{ source: "$freq", amount: 4 }] } },
+    carrier: { kind: "audio_node", type: "osc", wave: "sine",
+               freq: { base: 0, mod: [{ source: "$freq", amount: 1 }, { source: "fmDepth", amount: 1 }] } },
+
+    // Tine ping — 14th partial, fast decay
+    tineFreq: { kind: "audio_node", type: "math", op: "mul", a: "$freq", b: 14 },
+    tine: { kind: "audio_node", type: "osc", wave: "sine",
+            freq: { base: 0, mod: [{ source: "tineFreq", amount: 1 }] } },
+    tineEnv: { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.001, d: 0.08, curve: "exp" },
+    tineAmp: { kind: "audio_node", type: "amp", input: "tine",
+               gain: { base: 0, mod: [{ source: "tineEnv", amount: 0.2 }] } },
+
+    mix: { kind: "audio_node", type: "mixer", inputs: ["carrier", "tineAmp"], gains: [0.8, 1] },
+    ampEnv: { kind: "audio_node", type: "env_gen", envType: "adsr",
+              a: 0.002, d: 0.9, s: 0.3, r: 0.25, curve: "exp" },
+    amp: { kind: "audio_node", type: "amp", input: "mix",
+           gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.5 }, { source: "$vel", amount: 0.15 }] } },
+  };
+  return b.defineInstrument({ name: "fm_epiano", polyphony: 8, nodes, output: "amp" });
+}
+
+/**
+ * FM Bell — inharmonic 3.5:1 modulator ratio, long exponential decay into
+ * reverb. The modulation index decays over the note so the spectrum
+ * simplifies as it rings, like a struck bell.
+ */
+export function defineFmBell(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    modFreq: { kind: "audio_node", type: "math", op: "mul", a: "$freq", b: 3.5 },
+    modOsc: { kind: "audio_node", type: "osc", wave: "sine",
+              freq: { base: 0, mod: [{ source: "modFreq", amount: 1 }] } },
+    modEnv: { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.001, d: 1.2, curve: "exp" },
+    modAmp: { kind: "audio_node", type: "amp", input: "modOsc",
+              gain: { base: 0, mod: [{ source: "modEnv", amount: 1 }] } },
+    // Deviation keytracked at index 3 for a bright inharmonic clang
+    fmDepth: { kind: "audio_node", type: "amp", input: "modAmp",
+               gain: { base: 0, mod: [{ source: "$freq", amount: 3 }] } },
+    carrier: { kind: "audio_node", type: "osc", wave: "sine",
+               freq: { base: 0, mod: [{ source: "$freq", amount: 1 }, { source: "fmDepth", amount: 1 }] } },
+
+    ampEnv: { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.001, d: 2.2, curve: "exp" },
+    amp: { kind: "audio_node", type: "amp", input: "carrier",
+           gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.45 }] } },
+    verb: { kind: "audio_node", type: "effect", effectType: "reverb",
+            input: "amp", params: { duration: 2.0, decay: 0.5, mix: 0.3 } },
+  };
+  return b.defineInstrument({ name: "fm_bell", polyphony: 8, nodes, output: "verb" });
+}
+
+/**
+ * Drawbar Organ — additive spectrum via PeriodicWave (Hammond-ish drawbar
+ * ratios), instant on/off envelope, fast shallow chorus for Leslie shimmer.
+ */
+export function defineDrawbarOrgan(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    tone: { kind: "audio_node", type: "osc", wave: "custom", freq: "$freq",
+            harmonics: [1, 0.85, 0.6, 0.5, 0, 0.4, 0, 0.35] },
+    sub:  { kind: "audio_node", type: "osc", wave: "sine", freq: "$freq", detune: -1200 },
+    mix:  { kind: "audio_node", type: "mixer", inputs: ["tone", "sub"], gains: [0.5, 0.3] },
+
+    ampEnv: { kind: "audio_node", type: "env_gen", envType: "adsr",
+              a: 0.005, d: 0.01, s: 1, r: 0.06 },
+    amp: { kind: "audio_node", type: "amp", input: "mix",
+           gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.4 }] } },
+    leslie: { kind: "audio_node", type: "effect", effectType: "chorus",
+              input: "amp", params: { rate: 5.5, depth: 0.0015, mix: 0.4 } },
+  };
+  return b.defineInstrument({ name: "drawbar_organ", polyphony: 8, nodes, output: "leslie" });
+}
+
+/**
+ * String Machine — 70s ensemble strings: wide detuned saws, slow attack,
+ * deep slow chorus doing the heavy lifting, gentle top-end rolloff.
+ */
+export function defineStringMachine(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    saw1: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: -14 },
+    saw2: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: -4 },
+    saw3: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: 6 },
+    saw4: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: 15 },
+    mix:  { kind: "audio_node", type: "mixer", inputs: ["saw1", "saw2", "saw3", "saw4"],
+            gains: [0.22, 0.25, 0.25, 0.22] },
+
+    ampEnv: { kind: "audio_node", type: "env_gen", envType: "adsr",
+              a: 0.3, d: 0.2, s: 0.85, r: 0.5 },
+    filter: { kind: "audio_node", type: "filter", filterType: "lowpass",
+              input: "mix", cutoff: 2600, q: 0.5 },
+    amp: { kind: "audio_node", type: "amp", input: "filter",
+           gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.32 }] } },
+    ensemble: { kind: "audio_node", type: "effect", effectType: "chorus",
+                input: "amp", params: { rate: 0.45, depth: 0.009, mix: 0.6 } },
+  };
+  return b.defineInstrument({ name: "string_machine", polyphony: 8, nodes, output: "ensemble" });
+}
+
+/**
+ * Acid Bass — 303-style: single saw, screaming resonant lowpass, exponential
+ * envelopes. Velocity drives the cutoff, so accented steps squeal — the
+ * first library instrument to use $vel modulation.
+ */
+export function defineAcidBass(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    saw: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq" },
+
+    ampEnv:    { kind: "audio_node", type: "env_gen", envType: "adsr",
+                 a: 0.003, d: 0.1, s: 0.4, r: 0.08, curve: "exp" },
+    filterEnv: { kind: "audio_node", type: "env_gen", envType: "ad",
+                 a: 0.003, d: 0.18, curve: "exp" },
+
+    filter: { kind: "audio_node", type: "filter", filterType: "lowpass",
+              input: "saw",
+              cutoff: { base: 120, mod: [
+                { source: "filterEnv", amount: 1400 },
+                { source: "$vel", amount: 2800 },   // accent: hard hits open the filter
+              ] },
+              q: 14 },
+    drive: { kind: "audio_node", type: "effect", effectType: "distortion",
+             input: "filter", params: { amount: 2, mix: 0.7 } },
+    amp: { kind: "audio_node", type: "amp", input: "drive",
+           gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.7 }] } },
+  };
+  return b.defineInstrument({ name: "acid_bass", polyphony: 2, nodes, output: "amp" });
+}
+
+/**
+ * Hoover Lead — rave stab: saws an octave apart plus a nasty detuned square,
+ * chorus smear, drive. The classic Alpha Juno "what time is love" shape.
+ */
+export function defineHooverLead(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    saw1: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: -10 },
+    saw2: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: 10 },
+    sawLoFreq: { kind: "audio_node", type: "math", op: "div", a: "$freq", b: 2 },
+    sawLo: { kind: "audio_node", type: "osc", wave: "saw",
+             freq: { base: 0, mod: [{ source: "sawLoFreq", amount: 1 }] }, detune: 5 },
+    sq: { kind: "audio_node", type: "osc", wave: "square", freq: "$freq", detune: -25 },
+    mix: { kind: "audio_node", type: "mixer", inputs: ["saw1", "saw2", "sawLo", "sq"],
+           gains: [0.3, 0.3, 0.35, 0.2] },
+
+    ampEnv:    { kind: "audio_node", type: "env_gen", envType: "adsr",
+                 a: 0.01, d: 0.1, s: 0.8, r: 0.2 },
+    filterEnv: { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.01, d: 0.3 },
+    filter: { kind: "audio_node", type: "filter", filterType: "lowpass",
+              input: "mix",
+              cutoff: { base: 900, mod: [{ source: "filterEnv", amount: 2500 }] },
+              q: 2 },
+    smear: { kind: "audio_node", type: "effect", effectType: "chorus",
+             input: "filter", params: { rate: 1.1, depth: 0.006, mix: 0.5 } },
+    drive: { kind: "audio_node", type: "effect", effectType: "distortion",
+             input: "smear", params: { amount: 2, mix: 0.6 } },
+    amp: { kind: "audio_node", type: "amp", input: "drive",
+           gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.4 }] } },
+  };
+  return b.defineInstrument({ name: "hoover_lead", polyphony: 5, nodes, output: "amp" });
+}
+
+/**
+ * Soft Brass — saw section with slow filter swell (the "hhaaah" onset),
+ * keytracked cutoff so high notes keep their shine.
+ */
+export function defineSoftBrass(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    saw1: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: -6 },
+    saw2: { kind: "audio_node", type: "osc", wave: "saw", freq: "$freq", detune: 6 },
+    mix:  { kind: "audio_node", type: "mixer", inputs: ["saw1", "saw2"], gains: [0.45, 0.45] },
+
+    ampEnv:    { kind: "audio_node", type: "env_gen", envType: "adsr",
+                 a: 0.07, d: 0.25, s: 0.8, r: 0.25 },
+    filterEnv: { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.12, d: 0.5 },
+    filter: { kind: "audio_node", type: "filter", filterType: "lowpass",
+              input: "mix",
+              // Keytracked base (amount 3 = 3× fundamental) + swell
+              cutoff: { base: 300, mod: [
+                { source: "$freq", amount: 3 },
+                { source: "filterEnv", amount: 1800 },
+              ] },
+              q: 1.2 },
+    amp: { kind: "audio_node", type: "amp", input: "filter",
+           gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.4 }] } },
+  };
+  return b.defineInstrument({ name: "soft_brass", polyphony: 6, nodes, output: "amp" });
+}
+
+/**
+ * Glass Keys — sparse odd-harmonic spectrum (custom wave), exponential
+ * decay, chorus + reverb. Glassy mallet keys for ambient work.
+ */
+export function defineGlassKeys(b: GraphBuilder) {
+  const nodes: Record<string, AudioNode> = {
+    tone: { kind: "audio_node", type: "osc", wave: "custom", freq: "$freq",
+            harmonics: [1, 0, 0.4, 0, 0.25, 0, 0, 0, 0.12] },
+    shimmerFreq: { kind: "audio_node", type: "math", op: "mul", a: "$freq", b: 4 },
+    shimmer: { kind: "audio_node", type: "osc", wave: "sine",
+               freq: { base: 0, mod: [{ source: "shimmerFreq", amount: 1 }] } },
+    shimmerEnv: { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.001, d: 0.25, curve: "exp" },
+    shimmerAmp: { kind: "audio_node", type: "amp", input: "shimmer",
+                  gain: { base: 0, mod: [{ source: "shimmerEnv", amount: 0.1 }] } },
+
+    mix: { kind: "audio_node", type: "mixer", inputs: ["tone", "shimmerAmp"], gains: [0.6, 1] },
+    ampEnv: { kind: "audio_node", type: "env_gen", envType: "ad", a: 0.002, d: 1.6, curve: "exp" },
+    amp: { kind: "audio_node", type: "amp", input: "mix",
+           gain: { base: 0, mod: [{ source: "ampEnv", amount: 0.45 }, { source: "$vel", amount: 0.1 }] } },
+    chorus: { kind: "audio_node", type: "effect", effectType: "chorus",
+              input: "amp", params: { rate: 0.7, depth: 0.004, mix: 0.4 } },
+    verb: { kind: "audio_node", type: "effect", effectType: "reverb",
+            input: "chorus", params: { duration: 2.2, decay: 0.45, mix: 0.35 } },
+  };
+  return b.defineInstrument({ name: "glass_keys", polyphony: 8, nodes, output: "verb" });
+}
+
 export function defineClavinetStab(b: GraphBuilder) {
   const nodes: Record<string, AudioNode> = {
     sq1: { kind: "audio_node", type: "osc", wave: "square", freq: "$freq", detune: -3 },

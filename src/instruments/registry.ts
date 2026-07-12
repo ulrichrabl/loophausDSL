@@ -14,6 +14,14 @@ import {
   defineEchoPluck,
   defineShimmerPad,
   definePressedBass,
+  defineFmEpiano,
+  defineFmBell,
+  defineDrawbarOrgan,
+  defineStringMachine,
+  defineAcidBass,
+  defineHooverLead,
+  defineSoftBrass,
+  defineGlassKeys,
 } from "../instruments/library.ts";
 
 export type InstrumentName =
@@ -25,7 +33,15 @@ export type InstrumentName =
   | "clavinet_stab"
   | "echo_pluck"
   | "shimmer_pad"
-  | "pressed_bass";
+  | "pressed_bass"
+  | "fm_epiano"
+  | "fm_bell"
+  | "drawbar_organ"
+  | "string_machine"
+  | "acid_bass"
+  | "hoover_lead"
+  | "soft_brass"
+  | "glass_keys";
 
 type InstrumentBuilder = (b: GraphBuilder) => Id;
 
@@ -39,6 +55,14 @@ export const instrumentNames: InstrumentName[] = [
   "echo_pluck",
   "shimmer_pad",
   "pressed_bass",
+  "fm_epiano",
+  "fm_bell",
+  "drawbar_organ",
+  "string_machine",
+  "acid_bass",
+  "hoover_lead",
+  "soft_brass",
+  "glass_keys",
 ];
 
 const BUILDERS: Record<InstrumentName, InstrumentBuilder> = {
@@ -51,6 +75,14 @@ const BUILDERS: Record<InstrumentName, InstrumentBuilder> = {
   echo_pluck: defineEchoPluck,
   shimmer_pad: defineShimmerPad,
   pressed_bass: definePressedBass,
+  fm_epiano: defineFmEpiano,
+  fm_bell: defineFmBell,
+  drawbar_organ: defineDrawbarOrgan,
+  string_machine: defineStringMachine,
+  acid_bass: defineAcidBass,
+  hoover_lead: defineHooverLead,
+  soft_brass: defineSoftBrass,
+  glass_keys: defineGlassKeys,
 };
 
 export interface BuiltInstrument {

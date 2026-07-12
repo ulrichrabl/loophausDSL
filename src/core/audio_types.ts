@@ -25,6 +25,15 @@ export type AudioParam =
   | string                                          // "$freq", "$vel", "$gate" (port) or "node_name" (audio ref)
   | { base: number | string; mod?: Modulation[] }   // modulated parameter
 
+/**
+ * One modulation route. Sources:
+ *   - node name        — audio-rate signal, connected to the target AudioParam
+ *   - "$vel"           — per-note velocity (0..1), applied statically:
+ *                        target += amount × velocity
+ *   - "$freq"          — per-note frequency (Hz), applied statically:
+ *                        target += amount × freqHz (amount 1 = keytrack the
+ *                        fundamental, 2 = track the 2nd harmonic, …)
+ */
 export interface Modulation {
   source: string;       // ref to another node or "$port"
   amount: number;       // depth, in the target parameter's units
@@ -45,9 +54,16 @@ export type AudioNode =
 export interface OscillatorNode {
   kind: "audio_node";
   type: "osc";
-  wave: "sine" | "saw" | "square" | "triangle";
+  wave: "sine" | "saw" | "square" | "triangle" | "custom";
   freq: AudioParam;
   detune?: AudioParam;       // cents
+  /**
+   * For wave "custom": additive harmonic magnitudes. harmonics[0] is the
+   * fundamental, harmonics[1] the 2nd partial, etc. Rendered as a
+   * PeriodicWave (sine phases, normalized). Unlocks organs, bells, glassy
+   * keys — any static spectrum.
+   */
+  harmonics?: number[];
 }
 
 export interface NoiseNode {
@@ -88,6 +104,12 @@ export interface EnvGenNode {
   s?: number;                // sustain (0..1)
   r?: number;                // release
   gate?: string;             // gate signal — usually "$gate"
+  /**
+   * Decay/release ramp shape. "exp" gives percussive, natural-sounding
+   * decays (plucks, bells, drums); default "linear" sounds flatter.
+   * Attack is always linear (exponential ramps can't start from zero).
+   */
+  curve?: "linear" | "exp";
 }
 
 export interface LFONode {
@@ -98,6 +120,12 @@ export interface LFONode {
   depth?: AudioParam;        // output scale (default 1)
 }
 
+/**
+ * Math on signals. Static when both operands resolve to numbers/ports
+ * (evaluated once per voice). For add/sub/mul, node-ref operands are
+ * combined at audio rate (mul via a gain whose gain param is driven by
+ * the second signal — this is ring modulation). div/scale stay static.
+ */
 export interface MathNode {
   kind: "audio_node";
   type: "math";

@@ -15,6 +15,7 @@ const SWEEP_NOTES = [
   { midi: 36, label: "C2", durSec: 0.8 },
   { midi: 43, label: "G2", durSec: 0.8 },
   { midi: 48, label: "C3", durSec: 1.2 },
+  { midi: 60, label: "C4", durSec: 1.2 },   // keys/bells/leads live up here
 ];
 
 function writeWavMono(path: string, buffer: AudioBuffer): void {

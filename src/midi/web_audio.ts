@@ -9,7 +9,7 @@ import * as fs from "fs";
 import type { Graph } from "../core/types.ts";
 import type { SolveResult } from "../core/solver.ts";
 import { lookup } from "../core/graph.ts";
-import { renderInstrumentVoice } from "./audio_renderer.ts";
+import { instrumentUsesPort, renderInstrumentVoice } from "./audio_renderer.ts";
 import { midiToHz, renderInstrumentNote } from "./render_instrument.ts";
 
 type DrumSound =
@@ -38,13 +38,14 @@ function soundForDrumNote(midi: number): DrumSound {
  * The duration is bucketed so we don't make a unique buffer per fractional dur.
  */
 async function prerenderInstrumentBuffer(
-  inst: any, midi: number, durSec: number, sr: number
+  inst: any, midi: number, durSec: number, sr: number, velocity = 1.0
 ): Promise<any> {
   try {
     return await renderInstrumentNote(inst, {
       midi,
       durationSec: durSec,
       sampleRate: sr,
+      velocity,
       // tailSec omitted: renderInstrumentNote sizes the tail from the
       // instrument's effects so delay/reverb ring-out isn't truncated.
     });
@@ -63,6 +64,21 @@ function durBucket(durSec: number): number {
   if (durSec < 2.4)  return 2.4;
   if (durSec < 5.0)  return 5.0;
   return 8.0;
+}
+
+/**
+ * Bucket velocity for instruments whose timbre depends on $vel (e.g.
+ * velocity → filter cutoff). Instruments that don't read $vel get a single
+ * bucket — velocity is then just a post-gain, as before.
+ */
+const VEL_BUCKETS = [0.4, 0.7, 1.0];
+function velBucket(vel: number, usesVel: boolean): number {
+  if (!usesVel) return 1.0;
+  let best = VEL_BUCKETS[0];
+  for (const b of VEL_BUCKETS) {
+    if (Math.abs(b - vel) < Math.abs(best - vel)) best = b;
+  }
+  return best;
 }
 
 /**
@@ -342,20 +358,24 @@ async function renderOneTrack(
     if (target?.kind === "instance") instancesWithEnvelopes.add(bind.targetEntity);
   }
 
+  let trackUsesVel = false;
   if (track.instrument && !isDrums) {
     const inst = lookup<any>(g, track.instrument);
+    trackUsesVel = instrumentUsesPort(inst, "$vel");
     const needed = new Set<string>();
     for (const ev of events) {
       // Only cache buffers for events without per-note envelopes
       if (ev.fromInstance && instancesWithEnvelopes.has(ev.fromInstance)) continue;
       const dur = beatsToSec(ev.durationBeats);
-      needed.add(`${ev.pitch}|${durBucket(dur)}`);
+      const vel = (ev.velocity ?? 90) / 127;
+      needed.add(`${ev.pitch}|${durBucket(dur)}|${velBucket(vel, trackUsesVel)}`);
     }
     for (const key of needed) {
-      const [midiStr, durStr] = key.split("|");
+      const [midiStr, durStr, velStr] = key.split("|");
       const midi = parseInt(midiStr, 10);
       const durSec = parseFloat(durStr);
-      instrumentBufferCache.set(key, await prerenderInstrumentBuffer(inst, midi, durSec, sr));
+      const vel = parseFloat(velStr);
+      instrumentBufferCache.set(key, await prerenderInstrumentBuffer(inst, midi, durSec, sr, vel));
     }
   }
 
@@ -391,13 +411,15 @@ async function renderOneTrack(
         }
       } else {
         // Fast path: use pre-rendered buffer
-        const key = `${ev.pitch}|${durBucket(durSec)}`;
+        const bucket = velBucket(vel, trackUsesVel);
+        const key = `${ev.pitch}|${durBucket(durSec)}|${bucket}`;
         const buf = instrumentBufferCache.get(key);
         if (!buf) continue;
         const src = ctx.createBufferSource();
         src.buffer = buf;
         const velGain = ctx.createGain();
-        velGain.gain.value = vel;
+        // Timbre is baked at the bucket velocity; correct residual loudness.
+        velGain.gain.value = trackUsesVel ? vel / bucket : vel;
         src.connect(velGain);
         velGain.connect(volumeBus);
         src.start(tSec);

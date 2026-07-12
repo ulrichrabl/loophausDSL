@@ -44,7 +44,9 @@ export function explainInstrument(inst: Inst): string {
 function describeNode(node: AudioNode): string {
   switch (node.type) {
     case "osc":
-      return `osc ${node.wave}, freq=${fmtParam(node.freq)}`;
+      return node.wave === "custom"
+        ? `osc custom (${node.harmonics?.length ?? 0} harmonics), freq=${fmtParam(node.freq)}`
+        : `osc ${node.wave}, freq=${fmtParam(node.freq)}`;
     case "noise":
       return `noise ${node.color ?? "white"}`;
     case "filter":
@@ -57,7 +59,8 @@ function describeNode(node: AudioNode): string {
       return `env ${node.envType} a=${node.a}s` +
         (node.d !== undefined ? ` d=${node.d}s` : "") +
         (node.s !== undefined ? ` s=${node.s}` : "") +
-        (node.r !== undefined ? ` r=${node.r}s` : "");
+        (node.r !== undefined ? ` r=${node.r}s` : "") +
+        (node.curve === "exp" ? " (exp)" : "");
     case "lfo":
       return `lfo ${node.wave}, rate=${fmtParam(node.rate)}`;
     case "math":
