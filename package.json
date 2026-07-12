@@ -1,10 +1,29 @@
 {
   "name": "loophaus",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Parametric music composition kernel: score graph + instrument graph, solver, .loop DSL, synth engine",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "examples/loop",
+    "README.md"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
     "test": "vitest run && npm run explain:check",
     "test:unit": "vitest run --exclude tests/integration/render.test.ts",
     "test:integration": "vitest run tests/integration",

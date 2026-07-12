@@ -610,7 +610,7 @@ function makeNoise(ctx: OfflineAudioContext, durSec: number): AudioBufferSourceN
   return src;
 }
 
-function makeSoftClipCurve(amount: number): Float32Array {
+function makeSoftClipCurve(amount: number): Float32Array<ArrayBuffer> {
   const n = 2048;
   const curve = new Float32Array(n);
   for (let i = 0; i < n; i++) {

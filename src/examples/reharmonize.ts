@@ -16,7 +16,7 @@ import type { HarmonicSpan } from "../core/types.ts";
 import { midiToName } from "../core/theory.ts";
 
 export function buildAndCompareReharmonization() {
-  const g = buildMinorVamp();
+  const g = buildMinorVamp().graph;
 
   // Solve original
   const before = solve(g);

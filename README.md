@@ -29,6 +29,36 @@ npx tsx src/run_loop.ts examples/loop/effects_demo.loop   # per-instrument effec
 
 Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
 
+## Using as a package
+
+Install straight from git (the `prepare` script builds `dist/` automatically):
+
+```bash
+npm install github:ulrichrabl/loophausDSL
+```
+
+Two entry points:
+
+- **`loophaus`** — browser-safe core: `compileLoop`, `solve`, `explain`,
+  `GraphBuilder`, theory helpers, instrument definitions, `renderInstrumentVoice`
+  (context-agnostic per-voice synthesis). No Node.js dependencies — bundles
+  cleanly into web apps.
+- **`loophaus/node`** — offline rendering to files: `renderWebAudio` (WAV),
+  `renderMidi`, `renderInstrumentNote`. Requires Node (native audio + fs).
+
+```typescript
+import { compileLoop, solve, explain } from "loophaus";
+import { renderWebAudio } from "loophaus/node";   // Node only
+
+const graph = compileLoop(loopSource);   // .loop text → graph
+const result = solve(graph);             // graph → events (beats, pitch, velocity, track)
+console.log(explain(graph, result));     // structured commentary
+await renderWebAudio(graph, result, "out.wav");
+```
+
+A DAW integration consumes `result.events` and schedules them with its own
+playback engine; `.loop` text is the interchange format.
+
 ## Testing
 
 | Command | What it checks |
