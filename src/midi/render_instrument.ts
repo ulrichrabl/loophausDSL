@@ -5,9 +5,8 @@ import { OfflineAudioContext } from "node-web-audio-api";
 import type { Instrument, SampleBank } from "../core/audio_types.ts";
 import { instrumentTailSec, renderInstrumentVoice } from "./audio_renderer.ts";
 
-export function midiToHz(midi: number): number {
-  return 440 * Math.pow(2, (midi - 69) / 12);
-}
+export { midiToHz } from "../core/theory.ts";
+import { midiToHz } from "../core/theory.ts";
 
 export interface RenderNoteOptions {
   midi: number;

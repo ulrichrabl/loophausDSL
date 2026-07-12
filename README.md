@@ -115,6 +115,40 @@ keytracking. Velocity-timbre instruments render correctly in full mixes via
 velocity-bucketed voice caching. Audition everything:
 `npm run synth:sweep -- all`.
 
+## Live playing
+
+Instruments and their effect chains are playable in real time — several at
+once, multitimbrally. `LivePlayer` takes any AudioContext (a browser's, a
+DAW's, or node-web-audio-api's) and exposes the interface a MIDI handler
+wants:
+
+```typescript
+import { LivePlayer, buildInstrument } from "loophaus";
+
+const player = new LivePlayer(audioCtx, { samples });
+player.addTrack("bass", buildInstrument("acid_bass").instrument);
+player.addTrack("keys", buildInstrument("fm_epiano").instrument, {
+  gain: 0.7,
+  effects: [{ kind: "audio_node", type: "effect", effectType: "delay",
+              input: "", params: { time: 0.3, feedback: 0.4, mix: 0.25 } }],
+});
+
+player.noteOn("keys", 64);      // hold a chord over a bassline
+player.noteOn("keys", 67);
+player.noteOn("bass", 33);
+player.noteOff("keys", 64);     // envelopes release properly per voice
+```
+
+Each track has its own bus (gain + optional shared effect chain) summed
+through a master limiter; per-voice effects (an instrument's own delay or
+reverb) ring out naturally after note-off. Polyphony is enforced with
+oldest-voice stealing. Try it:
+
+- **Browser keyboard**: `npm run build && npx serve .` then open
+  `examples/live/index.html` — computer-keyboard piano across 5 tracks.
+- **Node**: `npx tsx src/demos/live_demo.ts` (real-time audio device) or
+  `--offline` to render the same noteOn/noteOff performance to WAV.
+
 ## Samples
 
 Sample *semantics* live in the kernel; sample *bytes* come from the host.
@@ -248,6 +282,7 @@ src/
 
 1. Per-event velocity envelopes within an instance (build across N bars) — `noteEnvelope` exists in TS API
 2. Drum synthesis as declarative instrument graphs (currently hardcoded voices keyed to MIDI note numbers)
-3. Browser version with live editing — kernel is platform-agnostic
-4. Audio-rate sidechain via AudioWorklet
+3. Live *arrangement* playback — lookahead scheduler feeding solved events into `LivePlayer` (live instrument playing works; whole-piece live transport doesn't yet)
+4. Audio-rate sidechain via AudioWorklet; live sidechain via envelope follower
 5. Full `.loop` ports of remaining registry examples (`daft_punk`, `strata`, `helios`, …)
+6. `.loop` syntax for sampler instruments and vocoder effect

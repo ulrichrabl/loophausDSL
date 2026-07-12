@@ -54,7 +54,21 @@ export { defineSampler, type SamplerInstrumentOptions } from "./instruments/libr
 
 // Per-voice synthesis. Context-agnostic: pass any (Offline)AudioContext,
 // browser or Node — only type imports touch node-web-audio-api.
-export { renderInstrumentVoice, instrumentTailSec } from "./midi/audio_renderer.ts";
+export {
+  renderInstrumentVoice,
+  instrumentTailSec,
+  startLiveVoice,
+  buildEffectBus,
+  type LiveVoice,
+  type LiveVoiceOptions,
+} from "./midi/audio_renderer.ts";
+
+// Live playing — multitimbral noteOn/noteOff engine for real-time contexts
+export {
+  LivePlayer,
+  type LivePlayerOptions,
+  type LiveTrackOptions,
+} from "./live/player.ts";
 
 // .loop DSL
 export { parseLoop, ParseError } from "./dloop/parse.ts";
