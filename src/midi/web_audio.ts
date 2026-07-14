@@ -7,28 +7,12 @@
 import { OfflineAudioContext } from "node-web-audio-api";
 import * as fs from "fs";
 import type { Graph } from "../core/types.ts";
+import type { SampleBank } from "../core/audio_types.ts";
 import type { SolveResult } from "../core/solver.ts";
 import { lookup } from "../core/graph.ts";
-import { renderInstrumentVoice } from "./audio_renderer.ts";
+import { instrumentUsesPort, renderInstrumentVoice } from "./audio_renderer.ts";
 import { midiToHz, renderInstrumentNote } from "./render_instrument.ts";
-
-type DrumSound =
-  | "kick" | "snare" | "closed_hat" | "open_hat" | "crash" | "clap";
-
-/**
- * The drum track multiplexes — kick, snare, hat all share the track.
- * We disambiguate by MIDI note number:
- *   36 = kick, 38 = snare, 39 = clap, 42 = closed hat, 46 = open hat, 49 = crash
- */
-function soundForDrumNote(midi: number): DrumSound {
-  if (midi === 36) return "kick";
-  if (midi === 38) return "snare";
-  if (midi === 39) return "clap";
-  if (midi === 42) return "closed_hat";
-  if (midi === 46) return "open_hat";
-  if (midi === 49) return "crash";
-  return "kick"; // fallback
-}
+import { soundForDrumNote, triggerDrumVoice, type DrumSound } from "./drums.ts";
 
 /**
  * Pre-render a single instrument voice (instrument + pitch + duration) to an
@@ -38,17 +22,21 @@ function soundForDrumNote(midi: number): DrumSound {
  * The duration is bucketed so we don't make a unique buffer per fractional dur.
  */
 async function prerenderInstrumentBuffer(
-  inst: any, midi: number, durSec: number, sr: number
+  inst: any, midi: number, durSec: number, sr: number, velocity = 1.0,
+  samples?: SampleBank,
 ): Promise<any> {
   try {
     return await renderInstrumentNote(inst, {
       midi,
       durationSec: durSec,
       sampleRate: sr,
+      velocity,
+      samples,
       // tailSec omitted: renderInstrumentNote sizes the tail from the
       // instrument's effects so delay/reverb ring-out isn't truncated.
     });
-  } catch {
+  } catch (e: any) {
+    console.error(`  Instrument ${inst.name} prerender failed: ${e?.message ?? e}`);
     const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: sr });
     return await ctx.startRendering();
   }
@@ -63,6 +51,21 @@ function durBucket(durSec: number): number {
   if (durSec < 2.4)  return 2.4;
   if (durSec < 5.0)  return 5.0;
   return 8.0;
+}
+
+/**
+ * Bucket velocity for instruments whose timbre depends on $vel (e.g.
+ * velocity → filter cutoff). Instruments that don't read $vel get a single
+ * bucket — velocity is then just a post-gain, as before.
+ */
+const VEL_BUCKETS = [0.4, 0.7, 1.0];
+function velBucket(vel: number, usesVel: boolean): number {
+  if (!usesVel) return 1.0;
+  let best = VEL_BUCKETS[0];
+  for (const b of VEL_BUCKETS) {
+    if (Math.abs(b - vel) < Math.abs(best - vel)) best = b;
+  }
+  return best;
 }
 
 /**
@@ -87,7 +90,12 @@ async function prerenderDrum(sound: DrumSound, midi: number, sr: number): Promis
   return await ctx.startRendering();
 }
 
-export async function renderWebAudio(g: Graph, result: SolveResult, outputPath: string) {
+export interface RenderOptions {
+  /** Sample buffers for instruments with sampler nodes (see loophaus/node loaders). */
+  samples?: SampleBank;
+}
+
+export async function renderWebAudio(g: Graph, result: SolveResult, outputPath: string, opts: RenderOptions = {}) {
   const transport = lookup<any>(g, g.transport);
   const tempo = lookup<any>(g, transport.tempo);
   const bpm: number = tempo.bpm;
@@ -162,7 +170,7 @@ export async function renderWebAudio(g: Graph, result: SolveResult, outputPath: 
     const t0 = Date.now();
     const { buffer, envelopesApplied, perNoteEnvelopesApplied } = await renderOneTrack(
       g, track, events, kickTimesSec, trackSidechainConfig.get(track.id),
-      lengthSec, sr, beatsToSec
+      lengthSec, sr, beatsToSec, opts.samples
     );
     totalEnvelopesApplied += envelopesApplied;
     totalPerNoteEnvelopesApplied += perNoteEnvelopesApplied;
@@ -214,6 +222,7 @@ async function renderOneTrack(
   lengthSec: number,
   sr: number,
   beatsToSec: (b: number) => number,
+  samples?: SampleBank,
 ): Promise<{ buffer: any; envelopesApplied: number; perNoteEnvelopesApplied: number }> {
   const totalSamples = Math.ceil(sr * lengthSec);
   const ctx = new OfflineAudioContext({
@@ -342,20 +351,24 @@ async function renderOneTrack(
     if (target?.kind === "instance") instancesWithEnvelopes.add(bind.targetEntity);
   }
 
+  let trackUsesVel = false;
   if (track.instrument && !isDrums) {
     const inst = lookup<any>(g, track.instrument);
+    trackUsesVel = instrumentUsesPort(inst, "$vel");
     const needed = new Set<string>();
     for (const ev of events) {
       // Only cache buffers for events without per-note envelopes
       if (ev.fromInstance && instancesWithEnvelopes.has(ev.fromInstance)) continue;
       const dur = beatsToSec(ev.durationBeats);
-      needed.add(`${ev.pitch}|${durBucket(dur)}`);
+      const vel = (ev.velocity ?? 90) / 127;
+      needed.add(`${ev.pitch}|${durBucket(dur)}|${velBucket(vel, trackUsesVel)}`);
     }
     for (const key of needed) {
-      const [midiStr, durStr] = key.split("|");
+      const [midiStr, durStr, velStr] = key.split("|");
       const midi = parseInt(midiStr, 10);
       const durSec = parseFloat(durStr);
-      instrumentBufferCache.set(key, await prerenderInstrumentBuffer(inst, midi, durSec, sr));
+      const vel = parseFloat(velStr);
+      instrumentBufferCache.set(key, await prerenderInstrumentBuffer(inst, midi, durSec, sr, vel, samples));
     }
   }
 
@@ -380,6 +393,7 @@ async function renderOneTrack(
             freqHz,
             velocity: vel,
             outputDest: volumeBus,
+            samples,
           });
           if (ev.fromInstance) {
             const list = instanceNoteGains.get(ev.fromInstance) ?? [];
@@ -391,13 +405,15 @@ async function renderOneTrack(
         }
       } else {
         // Fast path: use pre-rendered buffer
-        const key = `${ev.pitch}|${durBucket(durSec)}`;
+        const bucket = velBucket(vel, trackUsesVel);
+        const key = `${ev.pitch}|${durBucket(durSec)}|${bucket}`;
         const buf = instrumentBufferCache.get(key);
         if (!buf) continue;
         const src = ctx.createBufferSource();
         src.buffer = buf;
         const velGain = ctx.createGain();
-        velGain.gain.value = vel;
+        // Timbre is baked at the bucket velocity; correct residual loudness.
+        velGain.gain.value = trackUsesVel ? vel / bucket : vel;
         src.connect(velGain);
         velGain.connect(volumeBus);
         src.start(tSec);
@@ -446,171 +462,8 @@ async function renderOneTrack(
   return { buffer, envelopesApplied, perNoteEnvelopesApplied };
 }
 
-// ===== Drum voice synthesis ==============================================
 
-function triggerDrumVoice(
-  ctx: OfflineAudioContext,
-  sound: DrumSound,
-  freq: number,
-  t: number,
-  dur: number,
-  vel: number,
-  dest: AudioNode,
-) {
-  switch (sound) {
-    case "kick":       return voiceKick(ctx, t, vel, dest);
-    case "snare":      return voiceSnare(ctx, t, vel, dest);
-    case "closed_hat": return voiceClosedHat(ctx, t, vel, dest);
-    case "open_hat":   return voiceOpenHat(ctx, t, vel, dest);
-    case "crash":      return voiceCrash(ctx, t, vel, dest);
-    case "clap":       return voiceClap(ctx, t, vel, dest);
-  }
-}
-
-function voiceKick(ctx: OfflineAudioContext, t: number, vel: number, dest: AudioNode) {
-  // Sine with pitch sweep and click. 808-style.
-  const osc = ctx.createOscillator();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(150, t);
-  osc.frequency.exponentialRampToValueAtTime(45, t + 0.08);
-
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0, t);
-  gain.gain.linearRampToValueAtTime(vel * 1.1, t + 0.003);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-
-  osc.connect(gain);
-  gain.connect(dest);
-  osc.start(t);
-  osc.stop(t + 0.4);
-
-  // Click transient — high-passed noise burst for impact
-  const noise = makeNoise(ctx, 0.01);
-  const click = ctx.createBiquadFilter();
-  click.type = "highpass";
-  click.frequency.value = 3000;
-  const clickGain = ctx.createGain();
-  clickGain.gain.setValueAtTime(vel * 0.4, t);
-  clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.015);
-  noise.connect(click);
-  click.connect(clickGain);
-  clickGain.connect(dest);
-  noise.start(t);
-  noise.stop(t + 0.02);
-}
-
-function voiceSnare(ctx: OfflineAudioContext, t: number, vel: number, dest: AudioNode) {
-  // Noise + a 180 Hz body tone.
-  const noise = makeNoise(ctx, 0.25);
-  const hp = ctx.createBiquadFilter();
-  hp.type = "highpass";
-  hp.frequency.value = 1500;
-  const ngain = ctx.createGain();
-  ngain.gain.setValueAtTime(0, t);
-  ngain.gain.linearRampToValueAtTime(vel * 0.7, t + 0.002);
-  ngain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-  noise.connect(hp);
-  hp.connect(ngain);
-  ngain.connect(dest);
-  noise.start(t);
-  noise.stop(t + 0.25);
-
-  const body = ctx.createOscillator();
-  body.type = "triangle";
-  body.frequency.value = 180;
-  const bgain = ctx.createGain();
-  bgain.gain.setValueAtTime(0, t);
-  bgain.gain.linearRampToValueAtTime(vel * 0.35, t + 0.002);
-  bgain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-  body.connect(bgain);
-  bgain.connect(dest);
-  body.start(t);
-  body.stop(t + 0.1);
-}
-
-function voiceClosedHat(ctx: OfflineAudioContext, t: number, vel: number, dest: AudioNode) {
-  const noise = makeNoise(ctx, 0.06);
-  const hp = ctx.createBiquadFilter();
-  hp.type = "highpass";
-  hp.frequency.value = 7000;
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0, t);
-  gain.gain.linearRampToValueAtTime(vel * 0.3, t + 0.001);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-  noise.connect(hp);
-  hp.connect(gain);
-  gain.connect(dest);
-  noise.start(t);
-  noise.stop(t + 0.06);
-}
-
-function voiceOpenHat(ctx: OfflineAudioContext, t: number, vel: number, dest: AudioNode) {
-  const noise = makeNoise(ctx, 0.4);
-  const hp = ctx.createBiquadFilter();
-  hp.type = "highpass";
-  hp.frequency.value = 6500;
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0, t);
-  gain.gain.linearRampToValueAtTime(vel * 0.35, t + 0.002);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-  noise.connect(hp);
-  hp.connect(gain);
-  gain.connect(dest);
-  noise.start(t);
-  noise.stop(t + 0.4);
-}
-
-function voiceCrash(ctx: OfflineAudioContext, t: number, vel: number, dest: AudioNode) {
-  const noise = makeNoise(ctx, 2.0);
-  const hp = ctx.createBiquadFilter();
-  hp.type = "highpass";
-  hp.frequency.value = 5000;
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0, t);
-  gain.gain.linearRampToValueAtTime(vel * 0.5, t + 0.003);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
-  noise.connect(hp);
-  hp.connect(gain);
-  gain.connect(dest);
-  noise.start(t);
-  noise.stop(t + 2.0);
-}
-
-function voiceClap(ctx: OfflineAudioContext, t: number, vel: number, dest: AudioNode) {
-  // Three quick noise bursts ~10ms apart, then a slower tail.
-  for (let i = 0; i < 3; i++) {
-    const tt = t + i * 0.012;
-    const noise = makeNoise(ctx, 0.03);
-    const bp = ctx.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.frequency.value = 1200;
-    bp.Q.value = 1.0;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, tt);
-    g.gain.linearRampToValueAtTime(vel * 0.45, tt + 0.001);
-    g.gain.exponentialRampToValueAtTime(0.001, tt + 0.03);
-    noise.connect(bp);
-    bp.connect(g);
-    g.connect(dest);
-    noise.start(tt);
-    noise.stop(tt + 0.04);
-  }
-}
-
-// ===== Helpers ==========================================================
-
-function makeNoise(ctx: OfflineAudioContext, durSec: number): AudioBufferSourceNode {
-  const sr = ctx.sampleRate;
-  const length = Math.ceil(sr * durSec);
-  const buf = ctx.createBuffer(1, length, sr);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  return src;
-}
-
-function makeSoftClipCurve(amount: number): Float32Array {
+function makeSoftClipCurve(amount: number): Float32Array<ArrayBuffer> {
   const n = 2048;
   const curve = new Float32Array(n);
   for (let i = 0; i < n; i++) {

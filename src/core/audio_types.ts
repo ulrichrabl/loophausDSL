@@ -25,6 +25,15 @@ export type AudioParam =
   | string                                          // "$freq", "$vel", "$gate" (port) or "node_name" (audio ref)
   | { base: number | string; mod?: Modulation[] }   // modulated parameter
 
+/**
+ * One modulation route. Sources:
+ *   - node name        — audio-rate signal, connected to the target AudioParam
+ *   - "$vel"           — per-note velocity (0..1), applied statically:
+ *                        target += amount × velocity
+ *   - "$freq"          — per-note frequency (Hz), applied statically:
+ *                        target += amount × freqHz (amount 1 = keytrack the
+ *                        fundamental, 2 = track the 2nd harmonic, …)
+ */
 export interface Modulation {
   source: string;       // ref to another node or "$port"
   amount: number;       // depth, in the target parameter's units
@@ -34,6 +43,7 @@ export interface Modulation {
 export type AudioNode =
   | OscillatorNode
   | NoiseNode
+  | SamplerNode
   | FilterNode
   | AmpNode
   | MixerNode
@@ -42,12 +52,46 @@ export type AudioNode =
   | MathNode
   | EffectNode;
 
+/**
+ * Sample assets, injected by the host environment. The kernel owns sample
+ * *semantics* (which sample a voice plays, root pitch, looping, envelopes,
+ * effects); the host owns the *bytes* — a DAW decodes with its own
+ * AudioContext, Node uses the loaders in "loophaus/node". Values are
+ * AudioBuffers (typed loosely so the core stays platform-agnostic).
+ */
+export type SampleBank = Record<string, unknown>;
+
+/**
+ * Sample playback voice. The buffer is looked up by name in the SampleBank
+ * passed to the renderer. Playback rate follows $freq relative to rootMidi
+ * when pitched (a sample recorded at C4 plays 2× at C5). One-shots
+ * (loop: false) always play to the end of the sample — percussion, risers,
+ * textures; looped samples gate with the note.
+ */
+export interface SamplerNode {
+  kind: "audio_node";
+  type: "sampler";
+  sample: string;            // key into the SampleBank
+  rootMidi?: number;         // pitch the sample was recorded at (default 60 = C4)
+  pitched?: boolean;         // repitch via playbackRate to match $freq (default true)
+  loop?: boolean;            // loop for the note duration (default false = one-shot)
+  loopStart?: number;        // seconds (loop: true only)
+  loopEnd?: number;          // seconds
+}
+
 export interface OscillatorNode {
   kind: "audio_node";
   type: "osc";
-  wave: "sine" | "saw" | "square" | "triangle";
+  wave: "sine" | "saw" | "square" | "triangle" | "custom";
   freq: AudioParam;
   detune?: AudioParam;       // cents
+  /**
+   * For wave "custom": additive harmonic magnitudes. harmonics[0] is the
+   * fundamental, harmonics[1] the 2nd partial, etc. Rendered as a
+   * PeriodicWave (sine phases, normalized). Unlocks organs, bells, glassy
+   * keys — any static spectrum.
+   */
+  harmonics?: number[];
 }
 
 export interface NoiseNode {
@@ -88,6 +132,12 @@ export interface EnvGenNode {
   s?: number;                // sustain (0..1)
   r?: number;                // release
   gate?: string;             // gate signal — usually "$gate"
+  /**
+   * Decay/release ramp shape. "exp" gives percussive, natural-sounding
+   * decays (plucks, bells, drums); default "linear" sounds flatter.
+   * Attack is always linear (exponential ramps can't start from zero).
+   */
+  curve?: "linear" | "exp";
 }
 
 export interface LFONode {
@@ -98,6 +148,12 @@ export interface LFONode {
   depth?: AudioParam;        // output scale (default 1)
 }
 
+/**
+ * Math on signals. Static when both operands resolve to numbers/ports
+ * (evaluated once per voice). For add/sub/mul, node-ref operands are
+ * combined at audio rate (mul via a gain whose gain param is driven by
+ * the second signal — this is ring modulation). div/scale stay static.
+ */
 export interface MathNode {
   kind: "audio_node";
   type: "math";

@@ -14,7 +14,7 @@
  *                                through a gain (the amount) to the AudioParam
  */
 import type { OfflineAudioContext as OACType } from "node-web-audio-api";
-import type { Instrument, AudioNode, AudioParam, Modulation } from "../core/audio_types.ts";
+import type { Instrument, AudioNode, AudioParam, Modulation, SampleBank } from "../core/audio_types.ts";
 
 interface VoiceContext {
   ctx: OACType;
@@ -25,6 +25,14 @@ interface VoiceContext {
   outputDest: any;          // AudioNode to connect the voice's output to (track bus)
   /** Source run-out after gate-off. Computed from envelope releases if unset. */
   tailSec?: number;
+  /** Host-provided sample buffers, required if the instrument has sampler nodes. */
+  samples?: SampleBank;
+  /**
+   * Live mode: note duration is unknown at note-on. Envelopes hold their
+   * sustain phase until noteOff() is called on the LiveVoice handle;
+   * sources start but don't schedule stops; noise buffers loop.
+   */
+  live?: boolean;
 }
 
 interface BuiltNode {
@@ -42,6 +50,8 @@ interface BuiltNode {
   params?: Record<string, any>;
   /** Internal source nodes needing explicit start/stop (e.g. LFO oscillator). */
   sources?: any[];
+  /** Live mode: envelope generators awaiting their release phase. */
+  liveEnv?: { node: import("../core/audio_types.ts").EnvGenNode; cs: any };
 }
 
 interface VoiceHandle {
@@ -67,13 +77,19 @@ function releaseTailSec(inst: Instrument): number {
 
 /**
  * Total tail an instrument needs after note-off: envelope releases plus
- * ring-out of time-based effects (delay feedback, reverb decay). Used to
- * size pre-render buffers so echoes and reverb tails aren't truncated.
+ * ring-out of time-based effects (delay feedback, reverb decay), plus
+ * one-shot sample run-out when a SampleBank is provided. Used to size
+ * pre-render buffers so nothing gets truncated.
  */
-export function instrumentTailSec(inst: Instrument, minTailSec = 1.5): number {
+export function instrumentTailSec(inst: Instrument, minTailSec = 1.5, samples?: SampleBank): number {
   let tail = Math.max(minTailSec, releaseTailSec(inst));
   for (const node of Object.values(inst.audioNodes)) {
     const n = node as AudioNode;
+    if (n.type === "sampler" && !n.loop && samples) {
+      const buf = samples[n.sample] as { duration?: number } | undefined;
+      if (buf?.duration) tail = Math.max(tail, buf.duration + 0.1);
+      continue;
+    }
     if (n.type !== "effect") continue;
     const p = (name: string, dflt: number): number => {
       const v = n.params?.[name];
@@ -93,6 +109,29 @@ export function instrumentTailSec(inst: Instrument, minTailSec = 1.5): number {
     }
   }
   return Math.min(tail, 10);
+}
+
+/**
+ * Whether any modulation route in the instrument reads the given port
+ * (e.g. "$vel"). Used by the track renderer to decide if pre-rendered
+ * voice buffers must be bucketed by velocity to preserve timbre.
+ */
+export function instrumentUsesPort(inst: Instrument, port: string): boolean {
+  const paramUses = (p: unknown): boolean =>
+    typeof p === "object" && p !== null && Array.isArray((p as { mod?: Modulation[] }).mod) &&
+    ((p as { mod: Modulation[] }).mod).some(m => m.source === port);
+  for (const node of Object.values(inst.audioNodes)) {
+    for (const value of Object.values(node as unknown as Record<string, unknown>)) {
+      if (paramUses(value)) return true;
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        // effect params: Record<string, AudioParam>
+        for (const inner of Object.values(value as Record<string, unknown>)) {
+          if (paramUses(inner)) return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 export function renderInstrumentVoice(inst: Instrument, voice: VoiceContext): VoiceHandle {
@@ -132,6 +171,157 @@ export function renderInstrumentVoice(inst: Instrument, voice: VoiceContext): Vo
   }
 
   return { noteGain };
+}
+
+// ---- Live voices ---------------------------------------------------------
+
+export interface LiveVoiceOptions {
+  ctx: any;                 // real-time AudioContext (or offline, for tests)
+  destination: any;         // where the voice output connects (track bus)
+  freqHz: number;
+  velocity?: number;        // 0..1 (default 0.8)
+  when?: number;            // context time to start (default ctx.currentTime)
+  samples?: SampleBank;
+}
+
+export interface LiveVoice {
+  noteGain: any;
+  /** Context time the voice started. */
+  readonly startedAt: number;
+  /** False once noteOff has been called. */
+  readonly active: boolean;
+  /**
+   * Release the voice (gate off). Envelope releases run, sources stop after
+   * the longest release, output disconnects after effect ring-out.
+   * Returns the context time at which the voice is fully silent.
+   */
+  noteOff(when?: number): number;
+}
+
+/**
+ * Start a voice with unknown duration — the live counterpart to
+ * renderInstrumentVoice. Envelopes hold their sustain until noteOff().
+ *
+ * Note-off during the attack phase snaps ADSR envelopes to their sustain
+ * level before releasing (a fast click-free fade, not a perfect
+ * continuation) — acceptable for v1 live playing.
+ */
+export function startLiveVoice(inst: Instrument, opts: LiveVoiceOptions): LiveVoice {
+  const ctx = opts.ctx;
+  const startTime = opts.when ?? ctx.currentTime;
+  const voice: VoiceContext = {
+    ctx,
+    startTime,
+    endTime: startTime,      // unused in live paths
+    freqHz: opts.freqHz,
+    velocity: opts.velocity ?? 0.8,
+    outputDest: opts.destination,
+    samples: opts.samples,
+    live: true,
+  };
+  voice.tailSec = releaseTailSec(inst);
+
+  const built: Record<string, BuiltNode> = {};
+  const order = topoSort(inst);
+  for (const name of order) built[name] = instantiate(ctx, inst.audioNodes[name] as AudioNode, voice, built);
+  for (const name of order) wireMods(ctx, inst.audioNodes[name] as AudioNode, built[name], voice, built);
+
+  const outNode = built[inst.output];
+  if (!outNode?.audioOut) {
+    throw new Error(`Instrument ${inst.name}: output node "${inst.output}" has no audioOut`);
+  }
+  const noteGain = ctx.createGain();
+  noteGain.gain.value = 1.0;
+  outNode.audioOut.connect(noteGain);
+  noteGain.connect(opts.destination);
+
+  for (const name of order) scheduleNode(inst.audioNodes[name] as AudioNode, built[name], voice);
+
+  // Collect everything that needs an explicit stop on release.
+  const stoppables = new Set<any>();
+  const liveEnvs: { node: import("../core/audio_types.ts").EnvGenNode; cs: any }[] = [];
+  for (const b of Object.values(built)) {
+    if (b.audioOut?.start) stoppables.add(b.audioOut);
+    for (const s of b.sources ?? []) stoppables.add(s);
+    if (b.liveEnv) liveEnvs.push(b.liveEnv);
+  }
+  const ringOut = instrumentTailSec(inst, 0.1, opts.samples);
+
+  let active = true;
+  return {
+    noteGain,
+    startedAt: startTime,
+    get active() { return active; },
+    noteOff(when?: number): number {
+      if (!active) return startTime;
+      active = false;
+      const tOff = Math.max(when ?? ctx.currentTime, startTime);
+      let maxRelease = 0.02;
+      for (const { node, cs } of liveEnvs) {
+        maxRelease = Math.max(maxRelease, applyLiveRelease(node, cs, tOff));
+      }
+      const tSourcesOff = tOff + maxRelease + 0.05;
+      for (const src of stoppables) {
+        try { src.stop(tSourcesOff); } catch { /* one-shots may have ended */ }
+      }
+      const tSilent = tSourcesOff + ringOut;
+      // Real-time contexts advance with the wall clock; disconnect once the
+      // ring-out is over so long sessions don't accumulate nodes. Offline
+      // contexts finish rendering before the timer fires, so it's harmless.
+      if (typeof setTimeout === "function") {
+        const delayMs = Math.max(0, (tSilent - ctx.currentTime) * 1000) + 200;
+        setTimeout(() => { try { noteGain.disconnect(); } catch { /* already gone */ } }, delayMs);
+      }
+      return tSilent;
+    },
+  };
+}
+
+/** Schedule an envelope's release phase at tOff; returns the release time. */
+function applyLiveRelease(
+  node: import("../core/audio_types.ts").EnvGenNode, cs: any, tOff: number,
+): number {
+  const exp = node.curve === "exp";
+  const F = 0.001;
+  const s = node.s ?? 0;
+  const r = node.r ?? 0;
+  if (node.envType === "ad") return 0;   // self-terminating
+  const fromLevel = node.envType === "ar" ? 1 : Math.max(exp ? F : 0, s);
+  cs.offset.cancelScheduledValues(tOff);
+  cs.offset.setValueAtTime(Math.max(exp ? F : 0.0001, fromLevel), tOff);
+  if (exp) {
+    cs.offset.exponentialRampToValueAtTime(F, tOff + Math.max(0.005, r));
+    cs.offset.setValueAtTime(0, tOff + Math.max(0.005, r));
+  } else {
+    cs.offset.linearRampToValueAtTime(0, tOff + Math.max(0.005, r));
+  }
+  return Math.max(0.005, r);
+}
+
+/**
+ * Build a serial effect chain for a track bus (live use). Voice ports
+ * ($vel/$freq) are meaningless on a shared bus and resolve to neutral
+ * values. Returns {input, output} gains to splice into the bus.
+ */
+export function buildEffectBus(
+  ctx: any,
+  effects: import("../core/audio_types.ts").EffectNode[],
+  when = 0,
+): { input: any; output: any } {
+  const input = ctx.createGain();
+  const output = ctx.createGain();
+  const dummyVoice: VoiceContext = {
+    ctx, startTime: when, endTime: when, freqHz: 440, velocity: 1,
+    outputDest: null, live: true,
+  };
+  let head: any = input;
+  for (const fx of effects) {
+    const b = instantiateEffect(ctx, fx, dummyVoice);
+    head.connect(b.audioIn ?? b.audioOut);
+    head = b.audioOut;
+  }
+  head.connect(output);
+  return { input, output };
 }
 
 // ---- Topological sort ---------------------------------------------------
@@ -203,19 +393,72 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
   switch (node.type) {
     case "osc": {
       const osc = ctx.createOscillator() as any;
-      osc.type = node.wave === "saw" ? "sawtooth" : node.wave;
+      if (node.wave === "custom") {
+        const harmonics = node.harmonics?.length ? node.harmonics : [1];
+        const n = harmonics.length + 1;
+        const real = new Float32Array(n);
+        const imag = new Float32Array(n);
+        for (let i = 0; i < harmonics.length; i++) imag[i + 1] = harmonics[i];
+        osc.setPeriodicWave(ctx.createPeriodicWave(real, imag));
+      } else {
+        osc.type = node.wave === "saw" ? "sawtooth" : node.wave;
+      }
       setParam(ctx, osc.frequency, node.freq, voice, built, /*default*/ 440);
       if (node.detune !== undefined) setParam(ctx, osc.detune, node.detune, voice, built, 0);
       return { audioOut: osc, params: { frequency: osc.frequency, detune: osc.detune } };
     }
-    case "noise": {
-      const sr = ctx.sampleRate;
-      const lenSec = (voice.endTime - voice.startTime) + (voice.tailSec ?? TAIL_SEC) + 0.05;
-      const buf = ctx.createBuffer(1, Math.ceil(sr * Math.max(lenSec, 0.1)), sr);
-      const data = buf.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    case "sampler": {
+      const buf = voice.samples?.[node.sample];
+      if (!buf) {
+        throw new Error(
+          `sample "${node.sample}" not found — pass a SampleBank containing it ` +
+          `(browser: decode with your AudioContext; Node: loadSampleWav/loadSamplesFromDir from loophaus/node)`,
+        );
+      }
       const src = ctx.createBufferSource() as any;
       src.buffer = buf;
+      if (node.pitched !== false) {
+        const rootHz = 440 * Math.pow(2, ((node.rootMidi ?? 60) - 69) / 12);
+        src.playbackRate.value = voice.freqHz / rootHz;
+      }
+      if (node.loop) {
+        src.loop = true;
+        if (node.loopStart !== undefined) src.loopStart = node.loopStart;
+        if (node.loopEnd !== undefined) src.loopEnd = node.loopEnd;
+      }
+      // Scheduled here, not in scheduleNode: one-shots must play to the end
+      // of the sample (crash, riser), so only looped samples get a stop.
+      // Live voices stop looped samples in noteOff instead.
+      src.start(voice.startTime);
+      if (node.loop && !voice.live) src.stop(voice.endTime + (voice.tailSec ?? TAIL_SEC));
+      const out: BuiltNode = { audioOut: src, params: { playbackRate: src.playbackRate } };
+      if (node.loop) out.sources = [src];
+      return out;
+    }
+    case "noise": {
+      const sr = ctx.sampleRate;
+      // Live: duration unknown — loop a 2s buffer instead of sizing to note.
+      const lenSec = voice.live
+        ? 2.0
+        : (voice.endTime - voice.startTime) + (voice.tailSec ?? TAIL_SEC) + 0.05;
+      const buf = ctx.createBuffer(1, Math.ceil(sr * Math.max(lenSec, 0.1)), sr);
+      const data = buf.getChannelData(0);
+      if (node.color === "pink") {
+        // Paul Kellett's economy pink-noise filter (-3 dB/octave).
+        let b0 = 0, b1 = 0, b2 = 0;
+        for (let i = 0; i < data.length; i++) {
+          const white = Math.random() * 2 - 1;
+          b0 = 0.99765 * b0 + white * 0.0990460;
+          b1 = 0.96300 * b1 + white * 0.2965164;
+          b2 = 0.57000 * b2 + white * 1.0526913;
+          data[i] = (b0 + b1 + b2 + white * 0.1848) * 0.25;
+        }
+      } else {
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      }
+      const src = ctx.createBufferSource() as any;
+      src.buffer = buf;
+      if (voice.live) src.loop = true;
       return { audioOut: src };
     }
     case "filter": {
@@ -240,23 +483,53 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
       const cs = ctx.createConstantSource() as any;
       cs.offset.value = 0;
       const t0 = voice.startTime;
+      const a = node.a, d = node.d ?? 0, s = node.s ?? 0;
+      const exp = node.curve === "exp";
+      if (voice.live) {
+        // Live: schedule up to the sustain phase; release happens when
+        // noteOff() arrives (see applyLiveRelease).
+        const F = 0.001;
+        cs.offset.setValueAtTime(exp ? F : 0, t0);
+        cs.offset.linearRampToValueAtTime(1, t0 + a);
+        if (node.envType === "adsr") {
+          if (exp) cs.offset.exponentialRampToValueAtTime(Math.max(F, s), t0 + a + d);
+          else     cs.offset.linearRampToValueAtTime(s, t0 + a + d);
+        } else if (node.envType === "ad") {
+          // Self-terminating — no gate needed
+          if (exp) {
+            cs.offset.exponentialRampToValueAtTime(F, t0 + a + d);
+            cs.offset.setValueAtTime(0, t0 + a + d);
+          } else {
+            cs.offset.linearRampToValueAtTime(0, t0 + a + d);
+          }
+        }
+        // "ar" holds at 1 until release
+        return { audioOut: cs, controlOut: cs, liveEnv: { node, cs } };
+      }
       const tGateOff = voice.endTime;
-      const a = node.a, d = node.d ?? 0, s = node.s ?? 0, r = node.r ?? 0;
-      // Attack
-      cs.offset.setValueAtTime(0, t0);
+      const r = node.r ?? 0;
+      // Exponential ramps can't reach 0 — decay toward a floor, then snap.
+      const FLOOR = 0.001;
+      const rampDown = (target: number, t: number) => {
+        if (exp) {
+          cs.offset.exponentialRampToValueAtTime(Math.max(FLOOR, target), t);
+          if (target < FLOOR) cs.offset.setValueAtTime(0, t);
+        } else {
+          cs.offset.linearRampToValueAtTime(target, t);
+        }
+      };
+      // Attack — always linear (exp can't start from zero)
+      cs.offset.setValueAtTime(exp ? FLOOR : 0, t0);
       cs.offset.linearRampToValueAtTime(1, t0 + a);
       if (node.envType === "adsr") {
-        // Decay to sustain
-        cs.offset.linearRampToValueAtTime(s, t0 + a + d);
-        cs.offset.setValueAtTime(s, tGateOff);
-        // Release
-        cs.offset.linearRampToValueAtTime(0, tGateOff + r);
+        rampDown(s, t0 + a + d);
+        cs.offset.setValueAtTime(Math.max(exp ? FLOOR : 0, s), tGateOff);
+        rampDown(0, tGateOff + r);
       } else if (node.envType === "ad") {
-        // Attack-decay (no sustain phase, decays to 0)
-        cs.offset.linearRampToValueAtTime(0, t0 + a + d);
+        rampDown(0, t0 + a + d);
       } else if (node.envType === "ar") {
         cs.offset.setValueAtTime(1, tGateOff);
-        cs.offset.linearRampToValueAtTime(0, tGateOff + r);
+        rampDown(0, tGateOff + r);
       }
       return { audioOut: cs, controlOut: cs };
     }
@@ -271,10 +544,53 @@ function instantiate(ctx: OACType, node: AudioNode, voice: VoiceContext, built: 
       return { audioOut: g, controlOut: g, params: { frequency: osc.frequency, gain: g.gain }, sources: [osc] };
     }
     case "math": {
-      // For simple compile-time math (e.g. freq / 2), evaluate statically.
-      // Audio-rate math is not handled here — would need ScriptProcessor or WaveShaper.
       const a = resolveStatic(node.a, voice);
       const b = resolveStatic(node.b, voice);
+      const aRef = typeof node.a === "string" && !node.a.startsWith("$") ? built[node.a] : undefined;
+      const bRef = typeof node.b === "string" && !node.b.startsWith("$") ? built[node.b] : undefined;
+
+      // Audio-rate path: add/sub/mul with at least one node-ref operand.
+      // mul with two signals is ring modulation (signal on a gain param).
+      if ((aRef || bRef) && (node.op === "add" || node.op === "sub" || node.op === "mul")) {
+        const out = ctx.createGain() as any;
+        if (node.op === "mul") {
+          if (aRef && bRef) {
+            out.gain.value = 0;
+            aRef.audioOut.connect(out);
+            bRef.audioOut.connect(out.gain);
+          } else {
+            // signal × constant
+            out.gain.value = (aRef ? b : a) ?? 1;
+            (aRef ?? bRef)!.audioOut.connect(out);
+          }
+        } else {
+          out.gain.value = 1;
+          const wireOperand = (ref: BuiltNode | undefined, val: number | undefined, negate: boolean) => {
+            let src: any;
+            if (ref) {
+              src = ref.audioOut;
+            } else {
+              const cs = ctx.createConstantSource() as any;
+              cs.offset.value = val ?? 0;
+              cs.start(voice.startTime);
+              src = cs;
+            }
+            if (negate) {
+              const inv = ctx.createGain() as any;
+              inv.gain.value = -1;
+              src.connect(inv);
+              inv.connect(out);
+            } else {
+              src.connect(out);
+            }
+          };
+          wireOperand(aRef, a, false);
+          wireOperand(bRef, b, node.op === "sub");
+        }
+        return { audioOut: out, controlOut: out };
+      }
+
+      // Static path: evaluate once per voice.
       const off = resolveStatic(node.offset, voice) ?? 0;
       let result: number;
       switch (node.op) {
@@ -501,10 +817,20 @@ function wireMods(ctx: OACType, node: AudioNode, b: BuiltNode, voice: VoiceConte
       }
       return;
     }
-    // Modulation matrix: connect each source through a gain node
+    // Modulation matrix: port sources apply statically; node sources
+    // connect at audio rate through a gain (the amount).
     if (p.mod) {
       for (const m of p.mod) {
-        if (m.source.startsWith("$")) continue;  // port mods not yet implemented as audio-rate
+        if (m.source.startsWith("$")) {
+          // Per-voice static contribution: velocity → brightness, freq →
+          // keytracking. $gate contributes its on-value (1).
+          const portVal =
+            m.source === "$vel"  ? voice.velocity :
+            m.source === "$freq" ? voice.freqHz :
+            m.source === "$gate" ? 1 : 0;
+          paramTarget.value = paramTarget.value + m.amount * portVal;
+          continue;
+        }
         const src = built[m.source];
         if (!src?.audioOut) continue;
         const g = ctx.createGain() as any;
@@ -543,7 +869,8 @@ function scheduleNode(node: AudioNode, b: BuiltNode, voice: VoiceContext) {
     if (!src?.start) continue;
     try {
       src.start(voice.startTime);
-      src.stop(stopAt);
+      // Live voices don't know their end yet — stops happen in noteOff().
+      if (!voice.live) src.stop(stopAt);
     } catch (_e) {
       // already started
     }

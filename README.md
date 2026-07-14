@@ -29,6 +29,36 @@ npx tsx src/run_loop.ts examples/loop/effects_demo.loop   # per-instrument effec
 
 Rendered WAV/MIDI goes to `./outputs/` by default. Override with `OUTPUT_DIR`.
 
+## Using as a package
+
+Install straight from git (the `prepare` script builds `dist/` automatically):
+
+```bash
+npm install github:ulrichrabl/loophausDSL
+```
+
+Two entry points:
+
+- **`loophaus`** — browser-safe core: `compileLoop`, `solve`, `explain`,
+  `GraphBuilder`, theory helpers, instrument definitions, `renderInstrumentVoice`
+  (context-agnostic per-voice synthesis). No Node.js dependencies — bundles
+  cleanly into web apps.
+- **`loophaus/node`** — offline rendering to files: `renderWebAudio` (WAV),
+  `renderMidi`, `renderInstrumentNote`. Requires Node (native audio + fs).
+
+```typescript
+import { compileLoop, solve, explain } from "loophaus";
+import { renderWebAudio } from "loophaus/node";   // Node only
+
+const graph = compileLoop(loopSource);   // .loop text → graph
+const result = solve(graph);             // graph → events (beats, pitch, velocity, track)
+console.log(explain(graph, result));     // structured commentary
+await renderWebAudio(graph, result, "out.wav");
+```
+
+A DAW integration consumes `result.events` and schedules them with its own
+playback engine; `.loop` text is the interchange format.
+
 ## Testing
 
 | Command | What it checks |
@@ -64,6 +94,107 @@ placed anywhere via `input:`. Five effect types, all wet/dry-mixable:
 Time-based effects automatically extend the voice's render tail
 (`instrumentTailSec`) so delay feedback and reverb decay ring out instead of
 being truncated. See `examples/loop/effects_demo.loop` for all of them in a mix.
+
+## Instrument palette (`src/instruments/library.ts`)
+
+17 instruments across families, all declarative audio graphs:
+
+| Family | Instruments | Techniques |
+|--------|-------------|------------|
+| Bass | `wobble_bass`, `pressed_bass`, `acid_bass` | sub-osc, drive+compressor, 303 accent via `$vel`→cutoff |
+| Leads | `supersaw_lead`, `broken_signal_lead`, `hoover_lead` | detune stacks, distortion, rave chorus |
+| Pads/strings | `warm_pad`, `shimmer_pad`, `string_machine` | slow envelopes, chorus→reverb, ensemble chorus |
+| Keys | `fm_epiano`, `glass_keys`, `drawbar_organ`, `clavinet_stab` | 2-op FM, custom PeriodicWave spectra, exp decay |
+| Bells/plucks | `fm_bell`, `echo_pluck`, `felt_synth`, `soft_brass` | inharmonic FM, feedback delay, keytracked filter |
+
+Synthesis features: custom additive waveforms (`wave: "custom"` + `harmonics`),
+2-operator FM (audio-rate signal into `osc.freq`), exponential envelope curves,
+pink noise, ring modulation (audio-rate `math mul`), and port modulation —
+`$vel`/`$freq` in any mod matrix for velocity-sensitive brightness and
+keytracking. Velocity-timbre instruments render correctly in full mixes via
+velocity-bucketed voice caching. Audition everything:
+`npm run synth:sweep -- all`.
+
+## Live playing
+
+Instruments and their effect chains are playable in real time — several at
+once, multitimbrally. `LivePlayer` takes any AudioContext (a browser's, a
+DAW's, or node-web-audio-api's) and exposes the interface a MIDI handler
+wants:
+
+```typescript
+import { LivePlayer, buildInstrument } from "loophaus";
+
+const player = new LivePlayer(audioCtx, { samples });
+player.addTrack("bass", buildInstrument("acid_bass").instrument);
+player.addTrack("keys", buildInstrument("fm_epiano").instrument, {
+  gain: 0.7,
+  effects: [{ kind: "audio_node", type: "effect", effectType: "delay",
+              input: "", params: { time: 0.3, feedback: 0.4, mix: 0.25 } }],
+});
+
+player.noteOn("keys", 64);      // hold a chord over a bassline
+player.noteOn("keys", 67);
+player.noteOn("bass", 33);
+player.noteOff("keys", 64);     // envelopes release properly per voice
+```
+
+Each track has its own bus (gain + optional shared effect chain) summed
+through a master limiter; per-voice effects (an instrument's own delay or
+reverb) ring out naturally after note-off. Polyphony is enforced with
+oldest-voice stealing. Percussion works too: `addDrumTrack()` gives a bus
+whose noteOns trigger the procedural drum voices (kick/snare/hats/crash/clap
+keyed by MIDI note).
+
+Whole arrangements play live as well. `createLiveSet` solves a composed
+graph, builds one bus per track, and returns a `LiveTransport` that streams
+the solver's events into the player with lookahead scheduling — start,
+stop, and loop a full piece in real time:
+
+```typescript
+import { createLiveSet } from "loophaus";
+
+const { player, transport } = createLiveSet(audioCtx, graph, { loop: true });
+transport.play();            // drums + synths, looping, sample-accurate
+// ... later
+transport.stop();            // releases everything, effects ring out
+```
+
+The same solver events feed both the offline WAV renderer and the live
+transport, so what you bounce is what you hear. Try it:
+
+- **Browser keyboard**: `npm run build && npx serve .` then open
+  `examples/live/index.html` — computer-keyboard piano across 5 tracks.
+- **Node**: `npx tsx src/demos/live_demo.ts` (real-time audio device) or
+  `--offline` to render the same noteOn/noteOff performance to WAV.
+- **Full piece, live**: `npx tsx src/demos/live_transport_demo.ts` loops
+  the electronic_loop example (drums + bass + pad) in real time;
+  `--offline` bounces two transport loops to WAV.
+
+## Samples
+
+Sample *semantics* live in the kernel; sample *bytes* come from the host.
+A `sampler` node names a sample, its root pitch, and loop behavior — the
+graph stays declarative and portable. At render time the host passes a
+`SampleBank` (name → AudioBuffer):
+
+```typescript
+import { GraphBuilder, defineSampler } from "loophaus";
+import { loadSamplesFromDir, renderWebAudio } from "loophaus/node";
+
+const samples = await loadSamplesFromDir("./samples");   // kick.wav → "kick"
+const inst = defineSampler(b, {
+  name: "piano", sample: "piano_c4", rootMidi: 60,       // repitched per note
+  adsr: { a: 0.002, d: 0.1, s: 0.8, r: 0.3 },
+});
+await renderWebAudio(graph, result, "out.wav", { samples });
+```
+
+In a browser DAW, decode with your own `AudioContext` and pass the same bank
+shape. One-shots (crashes, risers) play to the end of the sample past
+note-off; `loop: true` sustains while the note is held. Try
+`npx tsx src/demos/sampler_demo.ts` — it synthesizes its own pluck sample,
+so no assets are needed.
 
 ## Kernel — six primitives (`src/core/types.ts`)
 
@@ -172,7 +303,8 @@ src/
 ## Known gaps (next-round candidates)
 
 1. Per-event velocity envelopes within an instance (build across N bars) — `noteEnvelope` exists in TS API
-2. More synthesis voices — current set covers French house/atmospheric plus effect showcases (`echo_pluck`, `shimmer_pad`, `pressed_bass`)
-3. Browser version with live editing — kernel is platform-agnostic
-4. Audio-rate sidechain via AudioWorklet
+2. Drum synthesis as declarative instrument graphs (currently hardcoded voices keyed to MIDI note numbers)
+3. Live transport gaps: track-gain envelopes, sidechain ducking, and tempo changes mid-playback are offline-renderer-only for now
+4. Audio-rate sidechain via AudioWorklet; live sidechain via envelope follower
 5. Full `.loop` ports of remaining registry examples (`daft_punk`, `strata`, `helios`, …)
+6. `.loop` syntax for sampler instruments and vocoder effect

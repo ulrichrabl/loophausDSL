@@ -43,9 +43,18 @@ velocity, gate) and an output port (audio out).
 The minimum useful set. ~9 node kinds.
 
 ### Sources
-- **Oscillator** — periodic wave. Params: wave (sine/saw/square/triangle/pulse),
-  freq, detune, phase. Output: audio.
-- **Noise** — broadband noise. Params: color (white/pink/brown). Output: audio.
+- **Oscillator** — periodic wave. Params: wave (sine/saw/square/triangle/custom),
+  freq, detune. `wave: "custom"` takes `harmonics: number[]` (additive partial
+  magnitudes, rendered as a PeriodicWave) — organs, bells, glassy keys.
+  An oscillator's freq param accepts audio-rate modulation from another node,
+  which is 2-operator FM (see `fm_epiano`, `fm_bell`).
+- **Noise** — broadband noise. Params: color (white/pink). Output: audio.
+- **Sampler** — plays a named sample from a host-provided SampleBank.
+  Params: sample (bank key), rootMidi, pitched (repitch via playbackRate),
+  loop/loopStart/loopEnd. One-shots play to the end of the sample; looped
+  samples gate with the note. The kernel owns sample *semantics*; the host
+  owns the *bytes* (browser: decode with its AudioContext; Node:
+  `loadSample`/`loadSamplesFromDir` from `loophaus/node`).
 
 ### Processors
 - **Filter** — biquad. Params: type (lp/hp/bp/notch), cutoff, q. In: audio.
@@ -65,15 +74,23 @@ The minimum useful set. ~9 node kinds.
   echoes and reverb ring out fully (see `instrumentTailSec`).
 
 ### Modulators (produce control-rate signals)
-- **EnvelopeGenerator** — ADSR, AD, AR, or custom shapes. Triggered by gate
-  or note-on. Output: control signal in [0, 1].
+- **EnvelopeGenerator** — ADSR, AD, AR. Triggered by gate or note-on.
+  Output: control signal in [0, 1]. `curve: "exp"` gives exponential
+  decay/release for percussive realism (attack stays linear).
 - **LFO** — low-frequency oscillator. Params: wave, rate (Hz or beat-synced),
   depth, phase. Output: control signal.
 
 ### Math
 - **Combinator** — small set of operations on signals: add, multiply, scale,
-  divide. Lets you express "this freq is the input freq divided by 2" or
-  "this gain is velocity times envelope output."
+  divide. Static operands are evaluated once per voice ("this freq is the
+  input freq divided by 2"). add/sub/mul with node-ref operands run at audio
+  rate — mul of two signals is ring modulation.
+
+### Modulation sources
+Any mod-matrix route can use a node name (audio-rate) or a port:
+`$vel` contributes `amount × velocity` (velocity → cutoff = accents),
+`$freq` contributes `amount × freqHz` (keytracking; amount 1 tracks the
+fundamental).
 
 That's it. Everything else (compressors, sidechain, drum synthesis, complex
 FM) is composable from these.

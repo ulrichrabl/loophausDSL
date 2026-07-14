@@ -1,0 +1,149 @@
+<!doctype html>
+<!--
+  Loophaus live keyboard — play the instrument library from your computer
+  keyboard, several tracks at once.
+
+  Build the package first, then serve the repo root (ES modules need http):
+
+      npm run build
+      npx serve .        # or: python3 -m http.server
+
+  Open http://localhost:3000/examples/live/ and play:
+    A S D F G H J K L ;  →  white keys (C4 …)
+    W E   T Y U   O P    →  black keys
+    Z / X                →  octave down / up
+    1-5                  →  switch instrument track
+    Space                →  demo chord on all tracks at once
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Loophaus — live keyboard</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: ui-monospace, monospace; background: #14161a; color: #e8e4d8;
+         display: flex; flex-direction: column; align-items: center; gap: 1.2rem; padding: 2rem; }
+  h1 { font-size: 1.1rem; letter-spacing: 0.12em; text-transform: uppercase; color: #9ad1aa; }
+  #tracks { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
+  .track { padding: 0.5rem 0.9rem; border: 1px solid #3a3f46; border-radius: 6px; cursor: pointer; }
+  .track.selected { border-color: #9ad1aa; color: #9ad1aa; }
+  .track .num { opacity: 0.5; margin-right: 0.4em; }
+  #keys { display: flex; gap: 4px; }
+  .key { width: 44px; height: 120px; border-radius: 0 0 6px 6px; background: #e8e4d8; color: #14161a;
+         display: flex; align-items: flex-end; justify-content: center; padding-bottom: 8px;
+         font-size: 0.75rem; user-select: none; cursor: pointer; }
+  .key.black { background: #22252a; color: #e8e4d8; height: 80px; width: 34px; margin: 0 -19px; z-index: 2; }
+  .key.down { background: #9ad1aa; color: #14161a; }
+  #status { opacity: 0.6; font-size: 0.8rem; min-height: 1.2em; }
+</style>
+</head>
+<body>
+<h1>Loophaus live</h1>
+<div id="tracks"></div>
+<div id="keys"></div>
+<div id="status">press any key to start audio — 1-5 selects track, space = all tracks at once</div>
+
+<script type="module">
+import { LivePlayer, buildInstrument } from "../../dist/index.js";
+
+const TRACKS = [
+  { name: "acid_bass",     gain: 0.85 },
+  { name: "fm_epiano",     gain: 0.8 },
+  { name: "echo_pluck",    gain: 0.8 },
+  { name: "string_machine",gain: 0.55 },
+  { name: "drawbar_organ", gain: 0.6 },
+];
+
+// key → semitone offset from C
+const WHITE = { KeyA: 0, KeyS: 2, KeyD: 4, KeyF: 5, KeyG: 7, KeyH: 9, KeyJ: 11, KeyK: 12, KeyL: 14, Semicolon: 16 };
+const BLACK = { KeyW: 1, KeyE: 3, KeyT: 6, KeyY: 8, KeyU: 10, KeyO: 13, KeyP: 15 };
+const OFFSETS = { ...WHITE, ...BLACK };
+
+let ctx = null, player = null;
+let selected = 0;
+let baseMidi = 60;
+const held = new Map();   // code → { track, midi }
+
+function ensureAudio() {
+  if (player) return;
+  ctx = new AudioContext();
+  player = new LivePlayer(ctx, { masterGain: 0.8 });
+  for (const t of TRACKS) {
+    player.addTrack(t.name, buildInstrument(t.name).instrument, { gain: t.gain });
+  }
+  status(`audio running @ ${ctx.sampleRate} Hz — playing "${TRACKS[selected].name}"`);
+}
+
+function status(msg) { document.getElementById("status").textContent = msg; }
+
+function noteOn(code) {
+  ensureAudio();
+  if (held.has(code) || !(code in OFFSETS)) return;
+  const midi = baseMidi + OFFSETS[code];
+  const track = TRACKS[selected].name;
+  player.noteOn(track, midi, 0.85);
+  held.set(code, { track, midi });
+  keyEl(code)?.classList.add("down");
+}
+
+function noteOff(code) {
+  const h = held.get(code);
+  if (!h) return;
+  player.noteOff(h.track, h.midi);
+  held.delete(code);
+  keyEl(code)?.classList.remove("down");
+}
+
+function demoChord() {
+  ensureAudio();
+  // One chord voiced across every track simultaneously — instruments
+  // with their effect chains, all at once through the master limiter.
+  const notes = { acid_bass: [33], fm_epiano: [60, 64, 67], echo_pluck: [72, 76],
+                  string_machine: [48, 55], drawbar_organ: [64, 67, 71] };
+  for (const [track, ms] of Object.entries(notes)) for (const m of ms) player.noteOn(track, m, 0.8);
+  setTimeout(() => { for (const [track, ms] of Object.entries(notes)) for (const m of ms) player.noteOff(track, m); }, 1200);
+}
+
+addEventListener("keydown", (e) => {
+  if (e.repeat) return;
+  if (e.code === "Space") { e.preventDefault(); demoChord(); return; }
+  if (e.code === "KeyZ") { baseMidi -= 12; status(`octave: C${Math.round(baseMidi / 12) - 1}`); return; }
+  if (e.code === "KeyX") { baseMidi += 12; status(`octave: C${Math.round(baseMidi / 12) - 1}`); return; }
+  const num = parseInt(e.key, 10);
+  if (num >= 1 && num <= TRACKS.length) { selectTrack(num - 1); return; }
+  noteOn(e.code);
+});
+addEventListener("keyup", (e) => noteOff(e.code));
+addEventListener("blur", () => { for (const code of [...held.keys()]) noteOff(code); });
+
+// ---- UI ----
+const tracksEl = document.getElementById("tracks");
+TRACKS.forEach((t, i) => {
+  const el = document.createElement("div");
+  el.className = "track" + (i === selected ? " selected" : "");
+  el.innerHTML = `<span class="num">${i + 1}</span>${t.name}`;
+  el.onclick = () => selectTrack(i);
+  tracksEl.appendChild(el);
+});
+function selectTrack(i) {
+  selected = i;
+  document.querySelectorAll(".track").forEach((el, j) => el.classList.toggle("selected", j === i));
+  status(`playing "${TRACKS[i].name}"`);
+}
+
+const keysEl = document.getElementById("keys");
+const LAYOUT = ["KeyA","KeyW","KeyS","KeyE","KeyD","KeyF","KeyT","KeyG","KeyY","KeyH","KeyU","KeyJ","KeyK","KeyO","KeyL","KeyP","Semicolon"];
+for (const code of LAYOUT) {
+  const el = document.createElement("div");
+  el.className = "key" + (code in BLACK ? " black" : "");
+  el.dataset.code = code;
+  el.textContent = code.replace("Key", "").replace("Semicolon", ";");
+  el.onpointerdown = () => noteOn(code);
+  el.onpointerup = () => noteOff(code);
+  el.onpointerleave = () => noteOff(code);
+  keysEl.appendChild(el);
+}
+function keyEl(code) { return document.querySelector(`[data-code="${code}"]`); }
+</script>
+</body>
+</html>

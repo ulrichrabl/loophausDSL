@@ -104,6 +104,10 @@ export function closestMidiOfPc(pc: PitchClass, targetMidi: number): number {
 
 export const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
+export function midiToHz(midi: number): number {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
 export function midiToName(midi: number): string {
   const pc = ((midi % 12) + 12) % 12;
   const oct = Math.floor(midi / 12) - 1;
